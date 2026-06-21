@@ -10,6 +10,8 @@ A phased plan for building a web UI that connects to your WHOOP app, pulls your 
 
 ## Key architectural decision (read first)
 
+> **Data-source decision (confirmed June 2026):** The **WHOOP cloud API (OAuth)** is the **primary, confirmed source** — it fully supports **WHOOP 5.0** and delivers every metric automatically. A direct-from-band Bluetooth path (read raw sensor data off the strap, decode and score it locally, no cloud) was evaluated. It works today only for **WHOOP 4.0** (via projects like `openwhoop`); on the **5.0** the deep-metric protocol (recovery, strain, sleep) is **not yet publicly reverse-engineered**, so that path is captured as an exploratory R&D track in **Phase 7** — not on the critical path. _(Verify project/protocol status before relying on it; this space moves fast.)_
+
 Your WHOOP "app" gives you a **Client ID** and **Client Secret** from the WHOOP Developer Dashboard. The **Client Secret must never live in frontend code** — a React/Vite bundle is fully visible to anyone. The locked-in architecture:
 
 ```
@@ -183,6 +185,36 @@ General D3+React pattern: let **React own the DOM / SVG container and state**, l
 
 ---
 
+## Phase 7 — WHOOP 5.0 local deep-metrics investigation (R&D track)
+
+**Goal:** Determine whether — and how — we can source the _deep_ WHOOP 5.0 metrics (**recovery, strain, sleep**) **locally off the band over Bluetooth**, the way 4.0-only projects already do, so the dashboard could eventually run without the WHOOP cloud. This is a **parallel research track**, not a dependency of Phases 0–6.
+
+> **Status & honesty (June 2026):** This is **exploratory** and may not pan out on any fixed timeline. As of now, **no public project has fully reverse-engineered the 5.0's deep-metric protocol.** Verify current project status before relying on any claim here — the space moves fast and my knowledge of it is not authoritative.
+
+**What's possible on a 5.0 _today_ vs. blocked:**
+
+- ✅ **Live heart rate** streams over the _standard_ Bluetooth Heart Rate Service (commonly UUID `0x180D` — _verify_), which needs **no pairing/bond**. This is the one piece available right now and the natural first proof-of-concept.
+- ⛔ **Recovery, strain, sleep, history offload** ride WHOOP's _proprietary, encrypted_ protocol, which on the 5.0 is **not yet decoded** publicly.
+- ⚠️ **Bond constraint:** the strap holds an encrypted Bluetooth bond with **one device at a time** (normally the official WHOOP app). Reading the deep data requires taking that bond, which can disrupt the official app's pairing.
+
+**Investigation steps:**
+
+- [ ] **7.1 Track the field** — follow the projects working on this and watch for 5.0 progress: `noop-app/noop` (4.0 + _experimental_ 5.0/MG), `bWanShiTong/openwhoop` (4.0, Rust), `bWanShiTong/reverse-engineering-whoop` + its writeup, `johnmiddleton12/wearable`, `madhursatija/whoof`, `christianmeurer/whoop-reader`, `jogolden/whoomp`. _(All 4.0-centric today; the 5.0 is the open frontier.)_
+- [ ] **7.2 Capture your own BLE traffic** — the core RE method: enable **Bluetooth HCI snoop logging** on Android (Developer Options) — or use macOS **PacketLogger** — while the official WHOOP app syncs your 5.0, then analyze the frames in Wireshark. This is how the 4.0 was mapped.
+- [ ] **7.3 Live-HR proof-of-concept (do this first)** — build a tiny local collector that reads the standard HR stream off the 5.0 and writes it to Supabase. Proves the _whole_ band→DB→dashboard path end-to-end **before** any deep-metric decoding exists, and is guaranteed to work today. (I can scaffold this in Node or Python whenever you want the quick win.)
+- [ ] **7.4 Pairing / bond handshake** — investigate the encrypted bond (NOOP describes a `CLIENT_HELLO` link-establishment handshake on the 5.0). Understand single-device bonding and how to pair without permanently breaking the official app.
+- [ ] **7.5 Decode the deep-metric packets** — once captured, map the 5.0 frame format and packet types for recovery/strain/sleep. Use the documented 4.0 layout (openwhoop's "type-47" biometric decode) as a _starting hypothesis only_ — expect the 5.0 to differ.
+- [ ] **7.6 Local analytics** — recompute recovery/strain/sleep on your own machine from raw signals using documented methods (HRV RMSSD / Task Force 1996, Edwards or Banister TRIMP for strain, on-device sleep staging), mirroring what `openwhoop` and `noop` do. These are **approximations**, not WHOOP's proprietary scores, and are **not medical-grade**.
+- [ ] **7.7 Wire it into the dashboard** — when/if decoded, stand up the **local collector → Supabase** path and reuse a **mapping/view layer**: the collector writes its own native tables, SQL views re-present them under the names the charts already query (Phase 2.4 shapes), so the dashboard swaps source with **no chart changes**.
+- [ ] **7.8 Guardrails** — own device, own data only; interoperability/research framing (e.g. 17 U.S.C. §1201(f) reverse-engineering for interoperability); **not a medical device**; don't violate any agreement that binds you. Keep this track in a clearly-labeled, isolated module so it never touches the cloud pipeline's secrets.
+
+**Skills / knowledge to lean on**
+
+- **Knowledge:** BLE/GATT (services, characteristics, notifications), HCI snoop-log capture + analysis (Wireshark), packet framing/CRC, encrypted bonding/pairing, time-series signal processing, the published HRV/strain/sleep algorithms above.
+- **Tooling:** I can scaffold the live-HR collector (7.3) and help analyze captured BLE logs.
+
+---
+
 ## Suggested build order (critical path)
 
 1. **Phase 0** (repo + scaffold) →
@@ -191,6 +223,8 @@ General D3+React pattern: let **React own the DOM / SVG container and state**, l
 4. **Phase 3 + 4** in parallel (style shell while building the charting foundation) →
 5. **Phase 5** (questionnaire) →
 6. **Phase 6** (harden + deploy).
+
+**Phase 7** (5.0 local deep-metrics R&D) runs **off to the side** — _not_ on the critical path. Pick it up opportunistically, starting with the live-HR proof-of-concept (7.3).
 
 Get **one** chart end-to-end (auth → fetch → transform → render) before building the other five — it de-risks the whole pipeline.
 
@@ -218,3 +252,11 @@ Tell me which phase to start on, and confirm the chart→metric mappings in Phas
 - [Recovery — user data](https://developer.whoop.com/docs/developing/user-data/recovery/)
 - [Webhooks — WHOOP for Developers](https://developer.whoop.com/docs/developing/webhooks/)
 - [Authenticating with WHOOP (Passport)](https://developer.whoop.com/docs/tutorials/access-token-passport/)
+
+**Phase 7 (5.0 local R&D) references — unofficial community reverse-engineering projects:**
+
+- [NOOP — local-first WHOOP companion (4.0 & experimental 5.0)](https://github.com/noop-app/noop)
+- [openwhoop — WHOOP 4.0 local client (Rust)](https://github.com/bWanShiTong/openwhoop)
+- [Reverse Engineering Whoop 4.0 — writeup](https://github.com/bWanShiTong/reverse-engineering-whoop-post)
+- [bWanShiTong/reverse-engineering-whoop](https://github.com/bWanShiTong/reverse-engineering-whoop)
+- [johnmiddleton12/wearable](https://github.com/johnmiddleton12/wearable)
