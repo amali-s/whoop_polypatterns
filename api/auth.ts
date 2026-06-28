@@ -31,6 +31,7 @@ const WHOOP_SCOPES = [
   'read:sleep',
   'read:workout',
   'read:profile',
+  'read:body_measurement',
   'offline',
 ].join(' ');
 
