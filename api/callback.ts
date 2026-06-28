@@ -39,7 +39,7 @@
 //   the minimal, self-contained version for the auth round-trip.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { encryptToken } from './_lib/crypto';
+import { encryptToken } from './_lib/crypto.js';
 
 // WHOOP OAuth 2.0 token endpoint (see header note for verification).
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
