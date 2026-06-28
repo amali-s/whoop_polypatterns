@@ -5,10 +5,14 @@
 // or `?error=...` (the user denied access, or something went wrong). This
 // function:
 //
-//   1. Verifies CSRF: the `state` query param must equal the `state` we stashed
-//      in an HttpOnly cookie from /api/auth. Mismatch / missing → 400, and we
-//      do nothing else. The state cookie is cleared once read (single use).
-//   2. Exchanges the `code` for tokens via a SERVER-SIDE POST to WHOOP's token
+//   1. Handles a provider error first: if WHOOP rejected the authorize request
+//      (e.g. ?error=invalid_scope / access_denied), it redirects back here with
+//      an empty/absent `state`, so we surface that error BEFORE the CSRF check
+//      to avoid mislabeling it as "Invalid OAuth state".
+//   2. Verifies CSRF on the success path: the `state` query param must equal the
+//      `state` we stashed in an HttpOnly cookie from /api/auth. Mismatch /
+//      missing → 400. The state cookie is cleared once read (single use).
+//   3. Exchanges the `code` for tokens via a SERVER-SIDE POST to WHOOP's token
 //      endpoint. This is the only place the Client Secret is used.
 //   3. Stores the tokens server-side, never handing them to client JS.
 //   4. Redirects the browser to the app (the SPA at "/").
@@ -134,24 +138,45 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const cookies = parseCookies(req.headers.cookie);
   const expectedState = cookies[STATE_COOKIE];
 
-  // ── 1. CSRF check FIRST, before touching anything else. ──────────────────
-  // A missing or mismatched state means this callback was not initiated by us.
-  // Reject with 400 and clear the (now-spent) state cookie.
-  if (!state || !expectedState || state !== expectedState) {
-    fail(res, 400, 'Invalid OAuth state.', [clearCookie(STATE_COOKIE)]);
+  // The state cookie is single-use: clear it on every exit path below.
+  const clearState = clearCookie(STATE_COOKIE);
+
+  // ── 1. Provider error FIRST, before the CSRF check. ──────────────────────
+  // If WHOOP rejects the authorize request itself (invalid_scope, access_denied,
+  // etc.) it redirects here with ?error=... and OFTEN an empty or absent `state`.
+  // If we ran the CSRF check first, that empty state would trip it and the real
+  // problem would masquerade as "Invalid OAuth state" — which is exactly the
+  // failure that hid an invalid_scope error during Phase 1.3. There is no `code`
+  // on an error response, so no token exchange or other sensitive work happens
+  // here; surfacing the provider's own error is safe. We forward the error code,
+  // description, and hint (none of which contain secrets) so the SPA — and the
+  // URL bar — show the true cause, and we log the full detail server-side.
+  if (oauthError) {
+    const errorDescription = url.searchParams.get('error_description') ?? '';
+    const errorHint = url.searchParams.get('error_hint') ?? '';
+    console.error(
+      `WHOOP authorize error: ${oauthError}` +
+        (errorDescription ? ` — ${errorDescription}` : '') +
+        (errorHint ? ` (${errorHint})` : ''),
+    );
+    const params = new URLSearchParams({ whoop_error: oauthError });
+    if (errorDescription) {
+      params.set('whoop_error_description', errorDescription);
+    }
+    if (errorHint) {
+      params.set('whoop_error_hint', errorHint);
+    }
+    redirect(res, `${APP_LANDING_PATH}?${params.toString()}`, [clearState]);
     return;
   }
 
-  // State verified — burn the cookie so it can't be replayed.
-  const clearState = clearCookie(STATE_COOKIE);
-
-  // ── 2. Did WHOOP send back an error instead of a code? ───────────────────
-  // e.g. the user clicked "Deny" → ?error=access_denied. Redirect to the app
-  // with a flag the SPA can surface, rather than dumping a raw error.
-  if (oauthError) {
-    redirect(res, `${APP_LANDING_PATH}?whoop_error=${encodeURIComponent(oauthError)}`, [
-      clearState,
-    ]);
+  // ── 2. CSRF check on the SUCCESS path. ───────────────────────────────────
+  // A genuine authorization response carries both `code` and the `state` we
+  // minted in /api/auth. A missing or mismatched state means this callback was
+  // not initiated by us → reject. The check is enforced here, immediately before
+  // the token exchange, which is the operation it actually protects.
+  if (!state || !expectedState || state !== expectedState) {
+    fail(res, 400, 'Invalid OAuth state.', [clearState]);
     return;
   }
 

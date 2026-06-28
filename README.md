@@ -60,9 +60,12 @@ Supabase / Postgres   (tokens [encrypted], whoop data, questionnaire)
 ```
 .
 ├── api/                # Vercel serverless functions (Node). Each file = an endpoint.
-│   └── health.ts       #   GET /api/health → { ok: true }
+│   ├── health.ts       #   GET /api/health → { ok: true }
+│   ├── auth.ts         #   GET /api/auth → 302 redirect to WHOOP OAuth authorize
+│   └── callback.ts     #   GET /api/callback → verify state, exchange code, store tokens
 ├── lib/                # Server-only shared code (NOT bundled into the frontend).
-│   └── crypto.ts       #   AES-256-GCM token encrypt/decrypt helpers.
+│   ├── crypto.ts       #   AES-256-GCM token encrypt/decrypt helpers.
+│   └── supabase.ts     #   Service-role Supabase client (server-only).
 ├── src/                # React + TypeScript frontend (Vite).
 ├── public/             # Static assets served as-is.
 ├── .env.example        # Documented env vars (placeholders only).
@@ -76,6 +79,59 @@ Supabase / Postgres   (tokens [encrypted], whoop data, questionnaire)
 
 The phased plan lives in [`ROADMAP.md`](ROADMAP.md) — start there. This is
 **Phase 0**.
+
+---
+
+## Authentication (WHOOP OAuth 2.0)
+
+The authorization-code flow spans two serverless functions:
+
+**1. [`api/auth.ts`](api/auth.ts) — start the flow.**
+`GET /api/auth` → 302 redirect to WHOOP's authorize endpoint
+(`https://api.prod.whoop.com/oauth/oauth2/auth`). It mints a random `state` for
+CSRF protection, sends it to WHOOP, and also stores it in an **HttpOnly,
+SameSite=Lax** cookie (`whoop_oauth_state`). Requested scopes:
+`read:recovery read:cycles read:sleep read:workout read:profile offline` (the
+`offline` scope is what returns a refresh token).
+
+**2. [`api/callback.ts`](api/callback.ts) — complete the flow.** WHOOP redirects
+the browser back to `WHOOP_REDIRECT_URI` (`/api/callback`) with `?code&state`.
+The handler:
+
+1. **Verifies CSRF first** — compares the returned `state` against the
+   `whoop_oauth_state` cookie; a missing/mismatched value is rejected with `400`
+   before anything else happens. The state cookie is then cleared (single use).
+2. **Handles a denied/error redirect** — if WHOOP sends `?error=...` (e.g. the
+   user declined), it redirects to `/?whoop_error=...` instead of crashing.
+3. **Exchanges the code for tokens** — a server-side `POST` to
+   `https://api.prod.whoop.com/oauth/oauth2/token`, `x-www-form-urlencoded`,
+   with `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`,
+   and `client_secret` **in the body** (verified against the WHOOP docs, June
+   2026 — they specify "send client credentials in body"). A non-200 is handled
+   with a `502` and server-side logging (never echoing WHOOP's error to the
+   client).
+4. **Stores tokens server-side** — `access_token` and `refresh_token` are
+   written to **HttpOnly, SameSite=Lax** cookies, **AES-256-GCM-encrypted at
+   rest** via [`lib/crypto.ts`](lib/crypto.ts). They never reach client-side
+   JavaScript. _Tradeoff:_ cookies are simple and stateless but ride on the
+   browser and can't be refreshed without it — **Phase 1.4** moves the source of
+   truth to the encrypted Supabase `whoop_tokens` table.
+5. **Redirects** the connected user to the app (`/`).
+
+> **Cookie `Secure` flag is gated to production** (`NODE_ENV === 'production'`)
+> in **both** `/api/auth` and `/api/callback`, so the cookies are sent over
+> plain `http://localhost` during dev. The two functions must keep this gate in
+> lockstep — if one sets `Secure` and the other doesn't, the state cookie won't
+> round-trip locally. In production every cookie is `Secure`.
+
+Env vars these routes read (see [`.env.example`](.env.example)):
+
+| Var                    | Used by         | Used for                                                                  |
+| ---------------------- | --------------- | ------------------------------------------------------------------------- |
+| `WHOOP_CLIENT_ID`      | auth + callback | `client_id` on the authorize URL and token exchange (public).             |
+| `WHOOP_CLIENT_SECRET`  | callback        | `client_secret` in the token exchange. **Server-only — never committed.** |
+| `WHOOP_REDIRECT_URI`   | auth + callback | `redirect_uri` — must byte-match the value registered in WHOOP.           |
+| `TOKEN_ENCRYPTION_KEY` | callback        | AES-256-GCM key to encrypt tokens before storing them in cookies.         |
 
 ---
 
