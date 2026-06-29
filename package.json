@@ -8,6 +8,8 @@
   },
   "scripts": {
     "dev": "vite",
+    "dev:api": "vercel dev",
+    "inspect:tokens": "node --env-file=.env.local scripts/inspect-tokens.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

@@ -72,11 +72,11 @@ WHOOP uses **OAuth 2.0 Authorization Code flow**. Verified endpoints (June 2026)
 - Scopes: `offline`, `read:profile`, `read:recovery`, `read:sleep`, `read:workout`, `read:cycles`, and (worth verifying) `read:body_measurement`. The `offline` scope is what returns a **refresh token**.
 
 - [x] **1.1 Register redirect URI** in the WHOOP Developer Dashboard — registered prod URI: `https://whooppolypatterns.vercel.app/api/callback` (also set as `WHOOP_REDIRECT_URI` in Vercel). For local dev use `http://localhost:3000/api/callback`. Redirect URIs must match exactly — note the path is `/api/callback`, not `/callback`.
-- [ ] **1.2 Build the authorize redirect** — a Vercel function (`/api/auth`) constructs the authorize URL with `client_id`, `redirect_uri`, `response_type=code`, `scope`, and a `state` param (CSRF protection).
+- [x] **1.2 Build the authorize redirect** — a Vercel function (`/api/auth`) constructs the authorize URL with `client_id`, `redirect_uri`, `response_type=code`, `scope`, and a `state` param (CSRF protection).
 - [ ] **1.3 Handle the callback** — `/api/callback` exchanges the `code` for `access_token` + `refresh_token` (Client Secret from Vercel env vars, server-side only).
-- [ ] **1.4 Token storage with app-level encryption** — before writing tokens to the Supabase `whoop_tokens` table, **encrypt them in the function** (e.g. AES-256-GCM using a key held only in Vercel env vars). This way even the DB operator sees ciphertext, not your raw WHOOP tokens. Never put tokens in `localStorage` or in the frontend. _(Verify the exact crypto API you use against current Node docs.)_
+- [x] **1.4 Token storage with app-level encryption** — before writing tokens to the Supabase `whoop_tokens` table, **encrypt them in the function** (e.g. AES-256-GCM using a key held only in Vercel env vars). This way even the DB operator sees ciphertext, not your raw WHOOP tokens. Never put tokens in `localStorage` or in the frontend. _(Verify the exact crypto API you use against current Node docs.)_
 - [ ] **1.5 Token refresh** — implement refresh-token rotation before expiry; handle the refreshed token correctly. _(Verify token lifetime and whether refresh tokens rotate against current docs — I'm not certain of the exact TTL.)_
-- [ ] **1.6 Auth state in the UI** — "Connect WHOOP" button → redirect → connected state.
+- [x] **1.6 Auth state in the UI** — "Connect WHOOP" button → redirect → connected state.
 
 **Skills / knowledge to lean on**
 

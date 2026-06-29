@@ -14,7 +14,9 @@
 //      missing → 400. The state cookie is cleared once read (single use).
 //   3. Exchanges the `code` for tokens via a SERVER-SIDE POST to WHOOP's token
 //      endpoint. This is the only place the Client Secret is used.
-//   3. Stores the tokens server-side, never handing them to client JS.
+//   3. Encrypts the tokens and upserts them into the Supabase `whoop_tokens`
+//      table (server-side source of truth), then hands the browser only an
+//      opaque session cookie that references that row — never the tokens.
 //   4. Redirects the browser to the app (the SPA at "/").
 //
 // Endpoint + request shape confirmed against the live WHOOP developer docs
@@ -28,37 +30,56 @@
 //                    token_type: "bearer" }  (refresh_token requires the
 //                    `offline` scope, which /api/auth requests.)
 //
-// TOKEN STORAGE — tradeoff (this task, Phase 1.3):
-//   Tokens are written to HttpOnly + SameSite cookies, AES-256-GCM-encrypted
-//   at rest with lib/crypto.ts. Rationale:
-//     - HttpOnly means client-side JavaScript can never read them.
-//     - App-level encryption means a stolen cookie file is useless without the
-//       server's TOKEN_ENCRYPTION_KEY (matches the repo's "encrypt tokens at
-//       rest" posture; never plaintext on disk).
-//   Tradeoff vs. a server-side store: cookies are simple and stateless (no DB
-//   round-trip), but they ride on the browser, are size-limited, and can't be
-//   refreshed without the browser present. Phase 1.4 migrates the source of
-//   truth to the encrypted Supabase `whoop_tokens` table (durable, refreshable
-//   server-side via lib/supabase.ts + lib/crypto.ts); this cookie storage is
-//   the minimal, self-contained version for the auth round-trip.
+// TOKEN STORAGE — Phase 1.4 (durable, server-side source of truth):
+//   The access/refresh tokens are AES-256-GCM-encrypted with lib/crypto.ts and
+//   UPSERTED into the Supabase `whoop_tokens` table, keyed by the WHOOP member
+//   id (user_id). Re-auth overwrites the existing row. The table stores
+//   CIPHERTEXT only; encryption happening before the DB write means even the DB
+//   operator never sees raw tokens.
+//
+//   The browser holds NO tokens. It receives ONE opaque, HttpOnly session
+//   cookie (lib/tokens.ts → encodeSession) whose value is encryptToken(user_id).
+//   Later /api functions decode it to a user_id and use getWhoopTokens() to read
+//   + decrypt the tokens from Supabase. Why a session cookie over a server-side
+//   session store: this app has no sessions table, the member id alone is enough
+//   to key the row, and encrypting it reuses the existing crypto helper to make
+//   the cookie both opaque (hides the member id) and tamper-evident (the GCM
+//   auth tag stops a client swapping in another id) with no new infrastructure.
+//
+//   This supersedes Phase 1.3, where the tokens themselves lived in encrypted
+//   cookies: that was simple and stateless but rode the browser, was
+//   size-limited, and couldn't be refreshed without the browser present. The
+//   row in Supabase is durable and refreshable server-side (Phase 1.5).
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { encryptToken } from './_lib/crypto.js';
+import { getSupabaseAdmin } from './_lib/supabase.js';
+import { SESSION_COOKIE, encodeSession } from './_lib/tokens.js';
 
 // WHOOP OAuth 2.0 token endpoint (see header note for verification).
 const WHOOP_TOKEN_URL = 'https://api.prod.whoop.com/oauth/oauth2/token';
 
+// WHOOP API v2 "get basic profile" endpoint. We call it with the freshly minted
+// access token solely to learn the member's stable `user_id`, which keys the
+// whoop_tokens row (the token response itself does not include any member id).
+//
+// VERIFIED-AGAINST-SPEC (WHOOP OpenAPI, June 2026):
+// https://api.prod.whoop.com/developer/doc/openapi.json declares the server url
+// `https://api.prod.whoop.com/developer` and the path `/v2/user/profile/basic`,
+// so the full URL below is correct (the `/developer` prefix is confirmed, not
+// assumed). Method GET, scope read:profile (requested by /api/auth), auth via
+// `Authorization: Bearer <access_token>`; response JSON includes
+// { user_id, email, first_name, last_name } — we read `user_id`.
+const WHOOP_PROFILE_URL = 'https://api.prod.whoop.com/developer/v2/user/profile/basic';
+
 // Must mirror the cookie name minted in /api/auth.
 const STATE_COOKIE = 'whoop_oauth_state';
 
-// Cookies that hold the (encrypted) tokens. Read only by future /api functions.
-const ACCESS_COOKIE = 'whoop_access_token';
-const REFRESH_COOKIE = 'whoop_refresh_token';
-
-// Refresh tokens are long-lived; keep the cookie around so we can mint new
-// access tokens later (Phase 1.5) without forcing a re-auth. 30 days is a
-// conservative ceiling — WHOOP's actual refresh-token TTL governs validity.
-const REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // seconds (30 days)
+// The session cookie tracks the access-token lifetime loosely; the durable row
+// (refreshable server-side, Phase 1.5) is the real source of truth, so a
+// conservative 30-day ceiling here just bounds how long a browser stays linked
+// before it must re-auth. WHOOP's refresh-token TTL governs actual validity.
+const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // seconds (30 days)
 
 // Where to send the user once they're connected: the SPA landing/dashboard.
 const APP_LANDING_PATH = '/';
@@ -240,31 +261,94 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return;
   }
 
-  const { access_token, refresh_token, expires_in } = tokens;
+  const { access_token, refresh_token, expires_in, scope } = tokens;
   if (!access_token) {
     fail(res, 502, 'WHOOP token response missing access_token.', [clearState]);
     return;
   }
+  // The whoop_tokens.refresh_token_encrypted column is NOT NULL and we need the
+  // refresh token to keep syncing server-side (Phase 1.5), so a missing one is a
+  // hard failure here rather than a half-stored row. /api/auth requests the
+  // `offline` scope precisely so WHOOP returns it.
+  if (!refresh_token) {
+    fail(res, 502, 'WHOOP token response missing refresh_token (offline scope?).', [clearState]);
+    return;
+  }
 
-  // ── 5. Store tokens server-side: HttpOnly + encrypted-at-rest cookies. ───
-  // encryptToken() throws if TOKEN_ENCRYPTION_KEY is unset/wrong-sized — that's
-  // a server misconfig, so surface a 500 rather than storing plaintext.
-  const outCookies: string[] = [clearState];
+  // ── 5. Identify the member: GET the basic profile for a stable user_id. ──
+  // This is the only id we can key the token row on; the token response has none.
+  let userId: string;
   try {
-    // Access-token cookie lifetime tracks WHOOP's expiry (fallback 1h).
-    const accessMaxAge = typeof expires_in === 'number' && expires_in > 0 ? expires_in : 3600;
-    outCookies.push(setCookie(ACCESS_COOKIE, encryptToken(access_token), accessMaxAge));
-    if (refresh_token) {
-      outCookies.push(
-        setCookie(REFRESH_COOKIE, encryptToken(refresh_token), REFRESH_COOKIE_MAX_AGE),
+    const profileRes = await fetch(WHOOP_PROFILE_URL, {
+      headers: { Authorization: `Bearer ${access_token}` },
+    });
+    if (!profileRes.ok) {
+      const detail = await profileRes.text().catch(() => '');
+      console.error(`WHOOP profile fetch failed: ${profileRes.status} ${detail}`);
+      fail(res, 502, 'Failed to fetch WHOOP profile.', [clearState]);
+      return;
+    }
+    const profile = (await profileRes.json()) as { user_id?: number | string };
+    if (profile.user_id === undefined || profile.user_id === null) {
+      fail(res, 502, 'WHOOP profile response missing user_id.', [clearState]);
+      return;
+    }
+    // Stored as text (the row's primary key is text — member ids are not assumed
+    // numeric); String() normalizes whether WHOOP sends a number or a string.
+    userId = String(profile.user_id);
+  } catch {
+    fail(res, 502, 'Failed to reach the WHOOP profile endpoint.', [clearState]);
+    return;
+  }
+
+  // ── 6. Encrypt + upsert the tokens into whoop_tokens (source of truth). ──
+  // encryptToken() throws if TOKEN_ENCRYPTION_KEY is unset/wrong-sized, and the
+  // DB write can fail; either way we surface a 500 rather than store plaintext
+  // or leave the browser thinking it connected. The row holds CIPHERTEXT only.
+  try {
+    const accessTokenEncrypted = encryptToken(access_token);
+    const refreshTokenEncrypted = encryptToken(refresh_token);
+    // Absolute expiry from expires_in (now + seconds); fall back to 1h if absent.
+    const ttlSeconds = typeof expires_in === 'number' && expires_in > 0 ? expires_in : 3600;
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+    const now = new Date().toISOString();
+
+    const { error } = await getSupabaseAdmin()
+      .from('whoop_tokens')
+      .upsert(
+        {
+          user_id: userId,
+          access_token_encrypted: accessTokenEncrypted,
+          refresh_token_encrypted: refreshTokenEncrypted,
+          expires_at: expiresAt,
+          scope: scope ?? null,
+          updated_at: now,
+        },
+        { onConflict: 'user_id' },
       );
+    if (error) {
+      // error.message can carry row context; log server-side, don't echo it.
+      console.error(`whoop_tokens upsert failed: ${error.message}`);
+      fail(res, 500, 'Failed to store tokens.', [clearState]);
+      return;
     }
   } catch (err) {
-    console.error('Token encryption failed:', err);
+    console.error('Token encryption/storage failed:', err);
     fail(res, 500, 'Failed to store tokens.', [clearState]);
     return;
   }
 
-  // ── 6. Connected. Send the user to the app. ──────────────────────────────
-  redirect(res, APP_LANDING_PATH, outCookies);
+  // ── 7. Hand the browser only an opaque session cookie referencing the row. ─
+  // encodeSession() = encryptToken(user_id): tamper-evident + hides the id.
+  let sessionCookie: string;
+  try {
+    sessionCookie = setCookie(SESSION_COOKIE, encodeSession(userId), SESSION_COOKIE_MAX_AGE);
+  } catch (err) {
+    console.error('Session cookie encoding failed:', err);
+    fail(res, 500, 'Failed to establish session.', [clearState]);
+    return;
+  }
+
+  // ── 8. Connected. Send the user to the app. ──────────────────────────────
+  redirect(res, APP_LANDING_PATH, [clearState, sessionCookie]);
 }
