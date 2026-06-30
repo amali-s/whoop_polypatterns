@@ -66,7 +66,9 @@ async function main() {
 
   const { data, error } = await supabase
     .from('whoop_tokens')
-    .select('user_id, access_token_encrypted, refresh_token_encrypted, expires_at, scope, updated_at');
+    .select(
+      'user_id, access_token_encrypted, refresh_token_encrypted, expires_at, scope, updated_at',
+    );
 
   if (error) throw new Error(`Failed to read whoop_tokens: ${error.message}`);
 

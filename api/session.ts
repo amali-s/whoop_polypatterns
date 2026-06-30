@@ -13,13 +13,24 @@
 //     and return a generic response, never leaking which env var / dependency is
 //     at fault.
 //
+// TOKEN FRESHNESS (Phase 1.5):
+//   The SPA polls this endpoint, which makes it the natural place to keep the
+//   stored access token fresh. We read through ensureFreshTokens (lib/refresh.ts)
+//   rather than getWhoopTokens directly: if the access token is at/near expiry it
+//   transparently runs the refresh-token rotation, persists the rotated tokens,
+//   and returns the refreshed row — so the scope/expiresAt below reflect the
+//   refreshed token. ensureFreshTokens still returns the decrypted tokens, but we
+//   surface ONLY scope + expiresAt here; the access/refresh tokens never enter
+//   the response.
+//
 // Responses (always JSON):
 //   200 { connected: false }                                  — no/invalid session
 //   200 { connected: true, userId, scope, expiresAt }         — linked
 //   500 { connected: false, error: 'Failed to check session.' } — unexpected error
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { getWhoopTokens, SESSION_COOKIE, decodeSession } from './_lib/tokens.js';
+import { SESSION_COOKIE, decodeSession } from './_lib/tokens.js';
+import { ensureFreshTokens } from './_lib/refresh.js';
 
 /** Parse the request's Cookie header into a name→value map (matches callback.ts). */
 function parseCookies(header: string | undefined): Record<string, string> {
@@ -59,14 +70,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   }
 
   try {
-    // The cookie pointed at a member id; confirm a token row still exists. If the
-    // row was deleted (e.g. via /api/logout on another device) the session is
-    // stale, so report disconnected.
-    const tokens = await getWhoopTokens(userId);
+    // The cookie pointed at a member id; confirm a token row still exists AND is
+    // fresh. ensureFreshTokens refreshes a near-expiry access token in place and
+    // returns null only when the row is genuinely gone (e.g. /api/logout on
+    // another device) — that is "not connected", not an error. A refresh that
+    // fails at WHOOP's end (network/non-2xx) THROWS and is handled below as a
+    // real failure, so we never report connected with a stale/expired token.
+    const tokens = await ensureFreshTokens(userId);
     if (!tokens) {
       json(res, 200, { connected: false });
       return;
     }
+    // Only non-sensitive metadata leaves the server — never the tokens.
     json(res, 200, {
       connected: true,
       userId: tokens.userId,
@@ -74,8 +89,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       expiresAt: tokens.expiresAt ? tokens.expiresAt.toISOString() : null,
     });
   } catch (err) {
-    // getWhoopTokens throws on a real integrity/key problem (e.g. ciphertext that
-    // won't decrypt). Log server-side; return a generic, token-free response.
+    // ensureFreshTokens throws on a real problem: a ciphertext that won't decrypt
+    // (integrity/key) or a refresh rejected by WHOOP. Log server-side; return a
+    // generic, token-free response. Crucially we do NOT downgrade this to
+    // connected:false — the row may still exist; the token just couldn't be
+    // refreshed right now.
     console.error('Session check failed:', err);
     json(res, 500, { connected: false, error: 'Failed to check session.' });
   }

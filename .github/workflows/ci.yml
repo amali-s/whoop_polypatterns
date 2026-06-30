@@ -1,0 +1,44 @@
+# CI gate for pull requests (ROADMAP 6.4): lint + typecheck + build + tests.
+#
+# Vercel still builds and deploys on push independently; this workflow is the
+# pre-merge quality gate that runs the checks Vercel's build does NOT — notably
+# the /api type-check (tsc -b skips it) and the refresh unit test.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24: matches the dev environment and is required by
+      # scripts/test-refresh.mjs, which uses Node's native TypeScript type
+      # stripping (Node 23.6+) to drive the real api/_lib modules.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Type-check /api
+        run: npm run typecheck:api
+
+      - name: Build (frontend tsc -b + vite)
+        run: npm run build
+
+      - name: Refresh unit test
+        run: npm run test:refresh
