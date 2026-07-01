@@ -39,6 +39,14 @@
 //       signal, not a missing-scope misconfiguration.
 
 import { getValidAccessToken } from './refresh.js';
+import type {
+  WhoopProfile,
+  WhoopBodyMeasurement,
+  WhoopCycle,
+  WhoopRecovery,
+  WhoopSleep,
+  WhoopWorkout,
+} from './whoop-types.js';
 
 // ── Endpoints (verified against the live OpenAPI spec — see header) ──────────
 /** WHOOP API v2 server base. Mirrors WHOOP_PROFILE_URL's prefix in callback.ts. */
@@ -346,37 +354,51 @@ export async function fetchCollection<T = unknown>(
 }
 
 // ── Typed resource surface (one function per resource) ──────────────────────
-// Single-object endpoints: no pagination, returned as `unknown` (2.2 types them).
+// Default record types come from ./whoop-types (2.2, verified against a live
+// payload); every function stays generic so a caller can override `T`.
+// Single-object endpoints: no pagination.
 
 /** GET the member's basic profile. Scope: read:profile. */
-export function getProfile(userId: string, config?: RequestConfig): Promise<unknown> {
-  return whoopRequest<unknown>(userId, ENDPOINTS.profile, { config });
+export function getProfile<T = WhoopProfile>(userId: string, config?: RequestConfig): Promise<T> {
+  return whoopRequest<T>(userId, ENDPOINTS.profile, { config });
 }
 
 /** GET the member's body measurements. Scope: read:body_measurement. */
-export function getBodyMeasurement(userId: string, config?: RequestConfig): Promise<unknown> {
-  return whoopRequest<unknown>(userId, ENDPOINTS.bodyMeasurement, { config });
+export function getBodyMeasurement<T = WhoopBodyMeasurement>(
+  userId: string,
+  config?: RequestConfig,
+): Promise<T> {
+  return whoopRequest<T>(userId, ENDPOINTS.bodyMeasurement, { config });
 }
 
 // Collection endpoints: aggregate all pages by default. Pass maxPages/maxRecords
 // (or use fetchCollectionPage) to paginate manually.
 
 /** GET physiological cycles (day strain). Scope: read:cycles. */
-export function getCycles<T = unknown>(userId: string, options?: AggregateOptions): Promise<T[]> {
+export function getCycles<T = WhoopCycle>(
+  userId: string,
+  options?: AggregateOptions,
+): Promise<T[]> {
   return fetchCollection<T>(userId, ENDPOINTS.cycles, options);
 }
 
 /** GET recovery records (recovery %, HRV, RHR). Scope: read:recovery. */
-export function getRecovery<T = unknown>(userId: string, options?: AggregateOptions): Promise<T[]> {
+export function getRecovery<T = WhoopRecovery>(
+  userId: string,
+  options?: AggregateOptions,
+): Promise<T[]> {
   return fetchCollection<T>(userId, ENDPOINTS.recovery, options);
 }
 
 /** GET sleep activities (stages, performance). Scope: read:sleep. */
-export function getSleep<T = unknown>(userId: string, options?: AggregateOptions): Promise<T[]> {
+export function getSleep<T = WhoopSleep>(userId: string, options?: AggregateOptions): Promise<T[]> {
   return fetchCollection<T>(userId, ENDPOINTS.sleep, options);
 }
 
 /** GET workout activities. Scope: read:workout. */
-export function getWorkouts<T = unknown>(userId: string, options?: AggregateOptions): Promise<T[]> {
+export function getWorkouts<T = WhoopWorkout>(
+  userId: string,
+  options?: AggregateOptions,
+): Promise<T[]> {
   return fetchCollection<T>(userId, ENDPOINTS.workouts, options);
 }

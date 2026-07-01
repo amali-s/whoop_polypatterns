@@ -21,6 +21,11 @@ dist-ssr
 # Vercel
 .vercel
 
+# Captured WHOOP API samples (real personal health data — NEVER commit).
+# Used only locally to derive types in api/_lib/whoop-types.ts; the derived
+# field names + TS types are committed, the raw values here are not.
+whoop-samples/
+
 # Supabase local development
 .supabase
 supabase/.branches
