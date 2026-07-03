@@ -1,0 +1,523 @@
+// Server-only sync writer (Phase 2.3 — the caching layer).
+//
+// This module is the bridge from the WHOOP fetch layer (api/_lib/whoop.ts,
+// Phase 2.1/2.2) to our Postgres cache (supabase/migrations/0001_init.sql). It
+// pulls a date window of each resource and UPSERTs one row per record so the
+// dashboard reads OUR database, not the WHOOP API on every page load.
+//
+// SECURITY / IMPORT CONTRACT:
+//   - Server-only. It composes whoop.ts (token refresh) and supabase.ts (the
+//     service-role client that BYPASSES RLS), so it must NEVER be imported into
+//     /src — same contract as crypto.ts / supabase.ts / whoop.ts.
+//   - We log COUNTS ONLY. No token material and no raw health fields ever go to
+//     a log line — the full payload is written to the `raw jsonb` column and
+//     nowhere else. Resource-level error strings carry an HTTP status at most.
+//
+// CONCURRENCY / TOKEN REFRESH: every fetch here is issued SEQUENTIALLY (never in
+//   parallel). WHOOP rotates refresh tokens (one-time use — see refresh.ts), so
+//   two concurrent requests on an expired token would both try to refresh and the
+//   loser gets a spurious 400. Sequencing means the first request refreshes once
+//   and the rest reuse the fresh token. This is also why syncAll fetches each
+//   collection ONCE and threads the cycle/sleep day maps into recovery rather
+//   than re-fetching.
+//
+// WHAT GOES IN `raw` (Phase 2.3 scope): the ENTIRE WHOOP record object, verbatim.
+// Typed/generated columns are deferred to Phase 2.4; here we only derive the two
+// index columns the schema needs today — `whoop_id` and `day`.
+//
+// ── HOW `day` IS DERIVED PER RESOURCE (read off api/_lib/whoop-types.ts) ──────
+//   The schema keys cycles/recovery/sleep by (user_id, day) and workouts by
+//   (user_id, whoop_id). `day` is the member's LOCAL calendar date, computed by
+//   shifting the record's UTC instant by its `timezone_offset` (a "-05:00"-style
+//   UTC-offset string, per whoop-types.ts) and reading the wall-clock date. Doing
+//   this in local time means an activity just after midnight UTC lands on the
+//   correct local day.
+//
+//   * cycles   → localDay(cycle.start,   cycle.timezone_offset)
+//                A cycle IS a physiological day; `start` is its anchor.
+//   * sleep    → localDay(sleep.start,   sleep.timezone_offset)
+//                We SKIP naps (`nap === true`) so a nap can't clobber the main
+//                sleep on the (user_id, day) unique key. Naps are counted as
+//                `skipped`, not errors. (See TODO(verify) below re: night
+//                attribution.)
+//   * workouts → localDay(workout.start, workout.timezone_offset)
+//                Keyed by (user_id, whoop_id), so multiple workouts/day coexist;
+//                `day` is only for range queries.
+//   * recovery → HAS NO start/timezone_offset of its own (whoop-types.ts:
+//                WhoopRecoveryBase is just cycle_id/sleep_id/user_id/*_at). A
+//                recovery scores a cycle, so we take the day from the LINKED
+//                cycle (recovery.cycle_id → cycle.start's local day), falling
+//                back to the linked sleep (recovery.sleep_id → sleep.start's
+//                local day), and only then to recovery.created_at's UTC date.
+//
+// ── THE `deduped` COUNT (why fetched != upserted) ────────────────────────────
+//   cycles/recovery/sleep are keyed UNIQUE(user_id, day), so at most ONE row per
+//   local day survives. When WHOOP returns two records that map to the same day
+//   (e.g. a fragmented sleep, or a cycle boundary quirk), we collapse them —
+//   keeping the one with the newest `updated_at` — and count the drop as
+//   `deduped`. So: fetched = upserted + skipped + deduped + errored. This is a
+//   property of the Phase-2.3 (user_id, day) schema, not a bug; a per-record key
+//   would be a Phase 2.4 schema change.
+//
+//   TODO(verify) — timezone_offset shape: whoop-types.ts documents "-05:00" from
+//     a single 2026-06-30 capture. localDay() also tolerates "-0500"/"Z"; if a
+//     real payload ever shows minutes-as-int, revisit parseOffsetMinutes().
+//   TODO(verify) — sleep night attribution: WHOOP's UI often attributes an
+//     overnight sleep to the WAKE day, whereas we key on `start` (the day you lay
+//     down). Confirm which the dashboard wants; switching to `end` is a one-line
+//     change if so. Nap-skipping also means "sleep for day X" is the MAIN sleep.
+//   TODO(verify) — recovery.created_at fallback uses the UTC date (recovery has
+//     no offset). Only hit when a recovery's cycle AND sleep are both outside the
+//     synced window; widen the window or link via a stored cycle if it matters.
+
+import { getSupabaseAdmin } from './supabase.js';
+import {
+  getCycles,
+  getRecovery,
+  getSleep,
+  getWorkouts,
+  WhoopApiError,
+  WhoopAuthError,
+} from './whoop.js';
+import type { CollectionQuery } from './whoop.js';
+import type {
+  WhoopCycle,
+  WhoopRecovery,
+  WhoopSleep,
+  WhoopWorkout,
+} from './whoop-types.js';
+
+// ── Public shapes ────────────────────────────────────────────────────────────
+export type SyncResource = 'cycles' | 'recovery' | 'sleep' | 'workouts';
+
+/** Per-resource result. Safe to log verbatim — counts + a status string only. */
+export interface ResourceSyncSummary {
+  resource: SyncResource;
+  /** Records WHOOP returned for the window. */
+  fetched: number;
+  /** Rows written (insert-or-update) to Postgres. */
+  upserted: number;
+  /** Records intentionally not written (naps, or an undatable record). */
+  skipped: number;
+  /** Records collapsed onto an already-seen (user_id, day) key — see header. */
+  deduped: number;
+  /** Records/rows that failed to process or write. */
+  errored: number;
+  /** Resource-level failure (e.g. a non-401 WHOOP or DB error). No secrets. */
+  error?: string;
+}
+
+/** Whole-user result from syncAll. */
+export interface UserSyncSummary {
+  /** WHOOP member id that was synced (safe to log — it's not a secret). */
+  userId: string;
+  /** Inclusive window actually used (ISO date-time). */
+  window: { start: string; end: string };
+  /**
+   * True when WHOOP rejected the token (401) — the caller must surface
+   * "re-auth required" and NOT retry. When set, `results` is whatever completed
+   * before the 401.
+   */
+  reauthRequired?: boolean;
+  results: ResourceSyncSummary[];
+}
+
+/**
+ * Re-auth signal. syncAll catches this and reports it via `reauthRequired`
+ * rather than throwing, but the individual syncX helpers throw it so a caller
+ * driving them directly can distinguish "token dead" (stop, do not retry) from a
+ * transient resource error.
+ */
+export class SyncReauthRequiredError extends Error {
+  readonly userId: string;
+  constructor(userId: string, cause: WhoopAuthError) {
+    super('WHOOP re-authentication required (token rejected with 401).', { cause });
+    this.name = 'SyncReauthRequiredError';
+    this.userId = userId;
+  }
+}
+
+/** Date window for a sync run. Both ISO date-time; omit for the default lookback. */
+export interface SyncWindow {
+  start?: string;
+  end?: string;
+  /** Lookback in days when `start` is omitted. Default 7 (the cron path). */
+  lookbackDays?: number;
+}
+
+// ── Window resolution ────────────────────────────────────────────────────────
+const DEFAULT_LOOKBACK_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Resolve a {start,end} ISO window; default = [now - lookbackDays, now]. */
+export function resolveWindow(window: SyncWindow = {}): { start: string; end: string } {
+  const end = window.end ?? new Date().toISOString();
+  if (window.start) {
+    return { start: window.start, end };
+  }
+  const lookback = window.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
+  const start = new Date(Date.parse(end) - lookback * DAY_MS).toISOString();
+  return { start, end };
+}
+
+// ── Local-day derivation ─────────────────────────────────────────────────────
+/**
+ * Parse a WHOOP UTC-offset string into signed minutes. Handles "-05:00", "-0500",
+ * "+01:00", and "Z"/"+00:00". Returns null if it can't be parsed (caller decides
+ * the fallback) so we never silently assume UTC for a malformed offset.
+ */
+function parseOffsetMinutes(offset: string | null | undefined): number | null {
+  if (!offset) {
+    return null;
+  }
+  const trimmed = offset.trim();
+  if (trimmed === 'Z' || trimmed === 'z') {
+    return 0;
+  }
+  const m = /^([+-])(\d{2}):?(\d{2})$/.exec(trimmed);
+  if (!m) {
+    return null;
+  }
+  const sign = m[1] === '-' ? -1 : 1;
+  return sign * (Number(m[2]) * 60 + Number(m[3]));
+}
+
+/** Format a Date's UTC components as YYYY-MM-DD (a Postgres `date`). */
+function formatUtcDate(d: Date): string {
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const da = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${mo}-${da}`;
+}
+
+/**
+ * The member-local calendar date of an instant. Shift the UTC instant by the
+ * record's offset, then read the wall-clock date. If the offset is missing/bad,
+ * fall back to the UTC date (documented per-resource above).
+ */
+function localDay(isoInstant: string, offset: string | null | undefined): string | null {
+  const ms = Date.parse(isoInstant);
+  if (Number.isNaN(ms)) {
+    return null;
+  }
+  const offsetMinutes = parseOffsetMinutes(offset) ?? 0;
+  return formatUtcDate(new Date(ms + offsetMinutes * 60_000));
+}
+
+// ── Row shaping + upsert ─────────────────────────────────────────────────────
+/** The columns we write. `id`/`created_at` are left to their DB defaults. */
+interface CacheRow {
+  user_id: string;
+  whoop_id: string;
+  day: string;
+  raw: unknown;
+  updated_at: string;
+}
+
+/** Cycle_id/sleep_id → member-local day, used to date recovery records. */
+export type DayIndex = Map<number | string, string>;
+
+const TABLE: Record<SyncResource, string> = {
+  cycles: 'whoop_cycles',
+  recovery: 'whoop_recovery',
+  sleep: 'whoop_sleep',
+  workouts: 'whoop_workouts',
+};
+
+/** The WHOOP `updated_at` of a record (ms), for choosing a winner on dedupe. */
+function rawUpdatedAtMs(row: CacheRow): number {
+  const u = (row.raw as { updated_at?: string } | null)?.updated_at;
+  const t = u ? Date.parse(u) : NaN;
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/**
+ * Dedupe rows by their conflict key, keeping the NEWEST (max updated_at). A batch
+ * upsert must not contain two rows with the same conflict key — Postgres
+ * ON CONFLICT DO UPDATE cannot touch the same row twice in one statement.
+ */
+function dedupeByKey(rows: CacheRow[], keyOf: (r: CacheRow) => string): CacheRow[] {
+  const byKey = new Map<string, CacheRow>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    const existing = byKey.get(key);
+    if (!existing || rawUpdatedAtMs(row) >= rawUpdatedAtMs(existing)) {
+      byKey.set(key, row);
+    }
+  }
+  return [...byKey.values()];
+}
+
+/** Dedupe then batch-upsert already-shaped rows for a resource; return summary. */
+async function upsertResource(
+  resource: SyncResource,
+  fetched: number,
+  rows: CacheRow[],
+  skipped: number,
+  keyOf: (r: CacheRow) => string,
+  onConflict: string,
+): Promise<ResourceSyncSummary> {
+  const deduped = dedupeByKey(rows, keyOf);
+  const dedupedCount = rows.length - deduped.length;
+  const base = { resource, fetched, skipped, deduped: dedupedCount };
+
+  if (deduped.length === 0) {
+    return { ...base, upserted: 0, errored: 0 };
+  }
+  const { error } = await getSupabaseAdmin().from(TABLE[resource]).upsert(deduped, { onConflict });
+  if (error) {
+    return { ...base, upserted: 0, errored: deduped.length, error: `DB upsert failed: ${error.message}` };
+  }
+  return { ...base, upserted: deduped.length, errored: 0 };
+}
+
+/**
+ * Normalize a fetch failure: a 401 becomes SyncReauthRequiredError (THROWN — the
+ * caller must surface re-auth and not retry); any other WhoopApiError becomes a
+ * resource-level error summary (RETURNED, so one bad resource doesn't sink the
+ * run); anything else rethrows.
+ */
+function classifyFetchError(
+  resource: SyncResource,
+  userId: string,
+  err: unknown,
+): ResourceSyncSummary {
+  if (err instanceof WhoopAuthError) {
+    throw new SyncReauthRequiredError(userId, err);
+  }
+  if (err instanceof WhoopApiError) {
+    return {
+      resource,
+      fetched: 0,
+      upserted: 0,
+      skipped: 0,
+      deduped: 0,
+      errored: 0,
+      error: `WHOOP fetch failed (status ${err.status}) @ ${err.endpoint}`,
+    };
+  }
+  throw err;
+}
+
+// ── Row builders (pure: records → rows, plus the day index where relevant) ───
+function buildCycleRows(
+  userId: string,
+  records: WhoopCycle[],
+  now: string,
+): { rows: CacheRow[]; skipped: number; index: DayIndex } {
+  const index: DayIndex = new Map();
+  const rows: CacheRow[] = [];
+  let skipped = 0;
+  for (const c of records) {
+    const day = localDay(c.start, c.timezone_offset);
+    if (!day) {
+      skipped += 1; // undatable — flag by omission, never guess a day
+      continue;
+    }
+    index.set(c.id, day);
+    rows.push({ user_id: userId, whoop_id: String(c.id), day, raw: c, updated_at: now });
+  }
+  return { rows, skipped, index };
+}
+
+function buildSleepRows(
+  userId: string,
+  records: WhoopSleep[],
+  now: string,
+): { rows: CacheRow[]; skipped: number; index: DayIndex } {
+  const index: DayIndex = new Map();
+  const rows: CacheRow[] = [];
+  let skipped = 0;
+  for (const s of records) {
+    // Skip naps: the (user_id, day) key holds ONE sleep/day; a nap must not
+    // overwrite the main sleep. Counted as skipped, not an error.
+    if (s.nap) {
+      skipped += 1;
+      continue;
+    }
+    const day = localDay(s.start, s.timezone_offset);
+    if (!day) {
+      skipped += 1;
+      continue;
+    }
+    index.set(s.id, day);
+    rows.push({ user_id: userId, whoop_id: s.id, day, raw: s, updated_at: now });
+  }
+  return { rows, skipped, index };
+}
+
+function buildWorkoutRows(
+  userId: string,
+  records: WhoopWorkout[],
+  now: string,
+): { rows: CacheRow[]; skipped: number } {
+  const rows: CacheRow[] = [];
+  let skipped = 0;
+  for (const w of records) {
+    const day = localDay(w.start, w.timezone_offset);
+    if (!day) {
+      skipped += 1;
+      continue;
+    }
+    rows.push({ user_id: userId, whoop_id: w.id, day, raw: w, updated_at: now });
+  }
+  return { rows, skipped };
+}
+
+function buildRecoveryRows(
+  userId: string,
+  records: WhoopRecovery[],
+  cycleDayIndex: DayIndex,
+  sleepDayIndex: DayIndex,
+  now: string,
+): { rows: CacheRow[]; skipped: number } {
+  const rows: CacheRow[] = [];
+  let skipped = 0;
+  for (const r of records) {
+    // Prefer the linked cycle's day; fall back to the linked sleep; last resort
+    // is recovery.created_at's UTC date (recovery carries no offset — see header).
+    const day =
+      cycleDayIndex.get(r.cycle_id) ??
+      sleepDayIndex.get(r.sleep_id) ??
+      localDay(r.created_at, null);
+    if (!day) {
+      skipped += 1;
+      continue;
+    }
+    // whoop_id: recovery has no id of its own; it is 1:1 with a cycle, so we key
+    // the stored row by cycle_id (same value the day was derived from).
+    rows.push({ user_id: userId, whoop_id: String(r.cycle_id), day, raw: r, updated_at: now });
+  }
+  return { rows, skipped };
+}
+
+// ── Internal run* helpers: fetch → build → upsert, exposing indexes ─────────
+async function runCycles(
+  userId: string,
+  q: CollectionQuery,
+): Promise<{ summary: ResourceSyncSummary; index: DayIndex }> {
+  let records: WhoopCycle[];
+  try {
+    records = await getCycles(userId, q);
+  } catch (err) {
+    return { summary: classifyFetchError('cycles', userId, err), index: new Map() };
+  }
+  const built = buildCycleRows(userId, records, new Date().toISOString());
+  const summary = await upsertResource('cycles', records.length, built.rows, built.skipped, (r) => r.day, 'user_id,day');
+  return { summary, index: built.index };
+}
+
+async function runSleep(
+  userId: string,
+  q: CollectionQuery,
+): Promise<{ summary: ResourceSyncSummary; index: DayIndex }> {
+  let records: WhoopSleep[];
+  try {
+    records = await getSleep(userId, q);
+  } catch (err) {
+    return { summary: classifyFetchError('sleep', userId, err), index: new Map() };
+  }
+  const built = buildSleepRows(userId, records, new Date().toISOString());
+  const summary = await upsertResource('sleep', records.length, built.rows, built.skipped, (r) => r.day, 'user_id,day');
+  return { summary, index: built.index };
+}
+
+async function runWorkouts(userId: string, q: CollectionQuery): Promise<ResourceSyncSummary> {
+  let records: WhoopWorkout[];
+  try {
+    records = await getWorkouts(userId, q);
+  } catch (err) {
+    return classifyFetchError('workouts', userId, err);
+  }
+  const built = buildWorkoutRows(userId, records, new Date().toISOString());
+  // Keyed by whoop_id (a day can have several workouts).
+  return upsertResource('workouts', records.length, built.rows, built.skipped, (r) => r.whoop_id, 'user_id,whoop_id');
+}
+
+async function runRecovery(
+  userId: string,
+  q: CollectionQuery,
+  cycleDayIndex: DayIndex,
+  sleepDayIndex: DayIndex,
+): Promise<ResourceSyncSummary> {
+  let records: WhoopRecovery[];
+  try {
+    records = await getRecovery(userId, q);
+  } catch (err) {
+    return classifyFetchError('recovery', userId, err);
+  }
+  const built = buildRecoveryRows(userId, records, cycleDayIndex, sleepDayIndex, new Date().toISOString());
+  return upsertResource('recovery', records.length, built.rows, built.skipped, (r) => r.day, 'user_id,day');
+}
+
+// ── Public per-resource sync functions ───────────────────────────────────────
+export async function syncCycles(userId: string, window: SyncWindow = {}): Promise<ResourceSyncSummary> {
+  return (await runCycles(userId, resolveWindow(window))).summary;
+}
+
+export async function syncSleep(userId: string, window: SyncWindow = {}): Promise<ResourceSyncSummary> {
+  return (await runSleep(userId, resolveWindow(window))).summary;
+}
+
+export async function syncWorkouts(userId: string, window: SyncWindow = {}): Promise<ResourceSyncSummary> {
+  return runWorkouts(userId, resolveWindow(window));
+}
+
+/**
+ * Sync recovery. Recovery has no date of its own, so we resolve each record's day
+ * from the linked cycle (preferred) or sleep. Standalone, this builds those
+ * indexes by fetching cycles then sleep SEQUENTIALLY (no concurrent refresh);
+ * syncAll passes prebuilt indexes so nothing is fetched twice.
+ */
+export async function syncRecovery(
+  userId: string,
+  window: SyncWindow = {},
+  indexes?: { cycleDayIndex: DayIndex; sleepDayIndex: DayIndex },
+): Promise<ResourceSyncSummary> {
+  const q = resolveWindow(window);
+  let cycleDayIndex = indexes?.cycleDayIndex;
+  let sleepDayIndex = indexes?.sleepDayIndex;
+
+  if (!cycleDayIndex || !sleepDayIndex) {
+    const now = new Date().toISOString();
+    try {
+      // Sequential — never parallel (see the CONCURRENCY note in the header).
+      cycleDayIndex ??= buildCycleRows(userId, await getCycles(userId, q), now).index;
+      sleepDayIndex ??= buildSleepRows(userId, await getSleep(userId, q), now).index;
+    } catch (err) {
+      return classifyFetchError('recovery', userId, err);
+    }
+  }
+  return runRecovery(userId, q, cycleDayIndex, sleepDayIndex);
+}
+
+// ── Orchestrator ─────────────────────────────────────────────────────────────
+/**
+ * Sync every resource for one member over one window. Fetches each collection
+ * exactly once, SEQUENTIALLY, and threads the cycle/sleep day maps into recovery.
+ * A 401 anywhere is caught and reported via `reauthRequired` (the caller must
+ * surface re-auth and not retry); other per-resource failures are reported
+ * in-band so one bad resource doesn't sink the run.
+ */
+export async function syncAll(userId: string, window: SyncWindow = {}): Promise<UserSyncSummary> {
+  const w = resolveWindow(window);
+  const results: ResourceSyncSummary[] = [];
+
+  try {
+    const cycles = await runCycles(userId, w);
+    results.push(cycles.summary);
+
+    const sleep = await runSleep(userId, w);
+    results.push(sleep.summary);
+
+    results.push(await runWorkouts(userId, w));
+    results.push(await runRecovery(userId, w, cycles.index, sleep.index));
+  } catch (err) {
+    if (err instanceof SyncReauthRequiredError || err instanceof WhoopAuthError) {
+      return { userId, window: w, reauthRequired: true, results };
+    }
+    throw err;
+  }
+
+  return { userId, window: w, results };
+}
