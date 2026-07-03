@@ -80,12 +80,7 @@ import {
   WhoopAuthError,
 } from './whoop.js';
 import type { CollectionQuery } from './whoop.js';
-import type {
-  WhoopCycle,
-  WhoopRecovery,
-  WhoopSleep,
-  WhoopWorkout,
-} from './whoop-types.js';
+import type { WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout } from './whoop-types.js';
 
 // ── Public shapes ────────────────────────────────────────────────────────────
 export type SyncResource = 'cycles' | 'recovery' | 'sleep' | 'workouts';
@@ -266,7 +261,12 @@ async function upsertResource(
   }
   const { error } = await getSupabaseAdmin().from(TABLE[resource]).upsert(deduped, { onConflict });
   if (error) {
-    return { ...base, upserted: 0, errored: deduped.length, error: `DB upsert failed: ${error.message}` };
+    return {
+      ...base,
+      upserted: 0,
+      errored: deduped.length,
+      error: `DB upsert failed: ${error.message}`,
+    };
   }
   return { ...base, upserted: deduped.length, errored: 0 };
 }
@@ -403,7 +403,14 @@ async function runCycles(
     return { summary: classifyFetchError('cycles', userId, err), index: new Map() };
   }
   const built = buildCycleRows(userId, records, new Date().toISOString());
-  const summary = await upsertResource('cycles', records.length, built.rows, built.skipped, (r) => r.day, 'user_id,day');
+  const summary = await upsertResource(
+    'cycles',
+    records.length,
+    built.rows,
+    built.skipped,
+    (r) => r.day,
+    'user_id,day',
+  );
   return { summary, index: built.index };
 }
 
@@ -418,7 +425,14 @@ async function runSleep(
     return { summary: classifyFetchError('sleep', userId, err), index: new Map() };
   }
   const built = buildSleepRows(userId, records, new Date().toISOString());
-  const summary = await upsertResource('sleep', records.length, built.rows, built.skipped, (r) => r.day, 'user_id,day');
+  const summary = await upsertResource(
+    'sleep',
+    records.length,
+    built.rows,
+    built.skipped,
+    (r) => r.day,
+    'user_id,day',
+  );
   return { summary, index: built.index };
 }
 
@@ -431,7 +445,14 @@ async function runWorkouts(userId: string, q: CollectionQuery): Promise<Resource
   }
   const built = buildWorkoutRows(userId, records, new Date().toISOString());
   // Keyed by whoop_id (a day can have several workouts).
-  return upsertResource('workouts', records.length, built.rows, built.skipped, (r) => r.whoop_id, 'user_id,whoop_id');
+  return upsertResource(
+    'workouts',
+    records.length,
+    built.rows,
+    built.skipped,
+    (r) => r.whoop_id,
+    'user_id,whoop_id',
+  );
 }
 
 async function runRecovery(
@@ -446,20 +467,42 @@ async function runRecovery(
   } catch (err) {
     return classifyFetchError('recovery', userId, err);
   }
-  const built = buildRecoveryRows(userId, records, cycleDayIndex, sleepDayIndex, new Date().toISOString());
-  return upsertResource('recovery', records.length, built.rows, built.skipped, (r) => r.day, 'user_id,day');
+  const built = buildRecoveryRows(
+    userId,
+    records,
+    cycleDayIndex,
+    sleepDayIndex,
+    new Date().toISOString(),
+  );
+  return upsertResource(
+    'recovery',
+    records.length,
+    built.rows,
+    built.skipped,
+    (r) => r.day,
+    'user_id,day',
+  );
 }
 
 // ── Public per-resource sync functions ───────────────────────────────────────
-export async function syncCycles(userId: string, window: SyncWindow = {}): Promise<ResourceSyncSummary> {
+export async function syncCycles(
+  userId: string,
+  window: SyncWindow = {},
+): Promise<ResourceSyncSummary> {
   return (await runCycles(userId, resolveWindow(window))).summary;
 }
 
-export async function syncSleep(userId: string, window: SyncWindow = {}): Promise<ResourceSyncSummary> {
+export async function syncSleep(
+  userId: string,
+  window: SyncWindow = {},
+): Promise<ResourceSyncSummary> {
   return (await runSleep(userId, resolveWindow(window))).summary;
 }
 
-export async function syncWorkouts(userId: string, window: SyncWindow = {}): Promise<ResourceSyncSummary> {
+export async function syncWorkouts(
+  userId: string,
+  window: SyncWindow = {},
+): Promise<ResourceSyncSummary> {
   return runWorkouts(userId, resolveWindow(window));
 }
 
@@ -489,6 +532,52 @@ export async function syncRecovery(
     }
   }
   return runRecovery(userId, q, cycleDayIndex, sleepDayIndex);
+}
+
+// ── Webhook-driven delete (hard delete — see api/webhook.ts) ─────────────────
+/** Result of a `*.deleted` webhook. Safe to log verbatim — a count only. */
+export interface ResourceDeleteSummary {
+  resource: SyncResource;
+  /** Rows removed. 0 is normal — the record may never have been cached. */
+  deleted: number;
+  /** DB-level failure (no secrets). When set, `deleted` is 0. */
+  error?: string;
+}
+
+/**
+ * Remove a single cached record in response to a WHOOP `*.deleted` webhook.
+ * WHOOP is the source of truth; when it drops a record we HARD-delete our cached
+ * copy (the tables are a pure cache — see supabase/migrations/0001_init.sql).
+ *
+ * `identifier` is the v2 resource id the webhook carries (see api/webhook.ts).
+ * We match on the column that actually holds THAT id, which is not always the
+ * (user_id, day) upsert key:
+ *   * workouts → whoop_id IS the workout UUID (its own upsert key).       clean
+ *   * sleep    → the row is keyed (user_id, day), but the sleep UUID is
+ *                preserved in whoop_id, so we match on whoop_id.          clean
+ *   * recovery → the webhook id is the associated SLEEP UUID, whereas our
+ *                recovery row's whoop_id is the cycle_id. The sleep UUID lives
+ *                only in the raw payload, so we match raw->>'sleep_id'.
+ * WHOOP emits no cycle deletes, so `cycles` is unreachable via this path.
+ */
+export async function deleteRecord(
+  resource: SyncResource,
+  userId: string,
+  identifier: string,
+): Promise<ResourceDeleteSummary> {
+  const base = getSupabaseAdmin().from(TABLE[resource]).delete().eq('user_id', userId);
+  // recovery.whoop_id is the cycle_id; the webhook id is the linked sleep UUID.
+  const filtered =
+    resource === 'recovery'
+      ? base.eq('raw->>sleep_id', identifier)
+      : base.eq('whoop_id', identifier);
+  // return=representation gives us the deleted rows so we can COUNT them; we
+  // select only whoop_id so no raw health payload comes back to be logged.
+  const { data, error } = await filtered.select('whoop_id');
+  if (error) {
+    return { resource, deleted: 0, error: `DB delete failed: ${error.message}` };
+  }
+  return { resource, deleted: data?.length ?? 0 };
 }
 
 // ── Orchestrator ─────────────────────────────────────────────────────────────

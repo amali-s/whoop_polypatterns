@@ -2,8 +2,9 @@
 //
 // Near-real-time counterpart to the daily cron (api/sync.ts). WHOOP can POST an
 // event when a member's recovery/sleep/workout changes; we verify the signature,
-// then re-sync just that resource for that member so the cache is fresh within
-// seconds instead of up to a day.
+// then update the cache for that member so it is fresh within seconds instead of
+// up to a day. Create/update events re-sync a short recent window; `*.deleted`
+// events HARD-delete the matching cached row (see deleteRecord in sync.ts).
 //
 // ⚠️ HUMAN SETUP REQUIRED — this endpoint is INERT until you:
 //   1. Set WHOOP_WEBHOOK_SECRET (see the signing-secret TODO below).
@@ -30,12 +31,15 @@
 // TODO(verify) — REPLAY WINDOW: the docs do not specify a max age for
 //   X-WHOOP-Signature-Timestamp. We enforce a conservative 5-minute window below
 //   as defense-in-depth; loosen/remove only if WHOOP documents otherwise.
-// TODO(verify) — EVENT `id` SEMANTICS: for workout/sleep events `id` is the
-//   record UUID; for recovery, recovery has no id of its own (see whoop-types.ts)
-//   so the event `id` meaning is unconfirmed. We therefore do NOT trust `id` for
-//   record-level fetching — we re-sync a short recent window of the affected
-//   resource (idempotent) instead. Precise by-id fetch is a future optimization
-//   (the WHOOP client today only exposes date-windowed collection fetches).
+// EVENT `id` SEMANTICS (confirmed against WHOOP's webhook docs this session):
+//   For the v2 webhook model, `id` is — per event — the workout UUID, the sleep
+//   UUID, or (for recovery) the associated SLEEP UUID. For CREATE/UPDATE we still
+//   do NOT fetch by `id`: we re-sync a short recent window of the affected
+//   resource (idempotent), because the WHOOP client only exposes date-windowed
+//   collection fetches. For `*.deleted` we DO use `id` to find the row to remove
+//   (deleteRecord in sync.ts maps each id shape to the right column). We handle
+//   only v2 ids: this app's client/types are v2 and a v2 app receives v2 events;
+//   a v1 numeric id would need different matching and is not expected here.
 //
 // NOTE: WHOOP emits recovery/sleep/workout events but NOT cycle events, so cycle
 //   updates still arrive only via the daily cron. That is expected.
@@ -46,10 +50,12 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import {
+  deleteRecord,
   syncRecovery,
   syncSleep,
   syncWorkouts,
   type ResourceSyncSummary,
+  type SyncResource,
 } from './_lib/sync.js';
 
 /** Re-sync this many days around the event — wide enough to catch the record. */
@@ -60,7 +66,11 @@ const MAX_SIGNATURE_AGE_MS = 5 * 60 * 1000;
 /** WHOOP webhook event payload (fields we rely on; extras ignored). */
 interface WhoopWebhookEvent {
   user_id: number;
-  /** int64 (v1) or UUID string (v2). Not trusted for fetching — see header. */
+  /**
+   * v2 resource id: the workout/sleep UUID, or (recovery) the linked sleep UUID.
+   * Used to locate the row to remove on `*.deleted`; NOT used to fetch on
+   * create/update (we re-sync a window instead). See header.
+   */
   id: number | string;
   /** e.g. "recovery.updated", "sleep.deleted", "workout.updated". */
   type: string;
@@ -73,7 +83,9 @@ function verifySignature(rawBody: string, timestamp: string, signature: string):
   if (!secret || !timestamp || !signature) {
     return false;
   }
-  const expected = createHmac('sha256', secret).update(timestamp + rawBody).digest('base64');
+  const expected = createHmac('sha256', secret)
+    .update(timestamp + rawBody)
+    .digest('base64');
   const a = Buffer.from(expected);
   const b = Buffer.from(signature);
   if (a.length !== b.length) {
@@ -91,25 +103,41 @@ function timestampFresh(timestamp: string): boolean {
   return Math.abs(Date.now() - ts) <= MAX_SIGNATURE_AGE_MS;
 }
 
-/** Map an event `type` to the resource sync to run. Null = ignore this event. */
-function syncForType(
-  type: string,
-  userId: string,
-): Promise<ResourceSyncSummary> | null {
-  const window = { lookbackDays: WEBHOOK_LOOKBACK_DAYS };
-  // TODO(verify): `.deleted` events currently trigger a re-sync (which refreshes
-  // surviving records) but do NOT remove the deleted row from our cache. Add a
-  // targeted delete once the event `id` → row mapping is confirmed (see header).
+/** Resource families WHOOP emits events for (no cycle events — see header). */
+type WebhookResource = 'recovery' | 'sleep' | 'workout';
+
+/** Event `type` prefix → resource family. Null = event we don't handle. */
+function resourceFor(type: string): WebhookResource | null {
   if (type.startsWith('recovery.')) {
-    return syncRecovery(userId, window);
+    return 'recovery';
   }
   if (type.startsWith('sleep.')) {
-    return syncSleep(userId, window);
+    return 'sleep';
   }
   if (type.startsWith('workout.')) {
-    return syncWorkouts(userId, window);
+    return 'workout';
   }
   return null;
+}
+
+/** Webhook resource family → the sync/cache resource name it maps to. */
+const SYNC_RESOURCE: Record<WebhookResource, SyncResource> = {
+  recovery: 'recovery',
+  sleep: 'sleep',
+  workout: 'workouts',
+};
+
+/** Create/update: re-sync a short recent window of the affected resource. */
+function resyncResource(resource: WebhookResource, userId: string): Promise<ResourceSyncSummary> {
+  const window = { lookbackDays: WEBHOOK_LOOKBACK_DAYS };
+  switch (resource) {
+    case 'recovery':
+      return syncRecovery(userId, window);
+    case 'sleep':
+      return syncSleep(userId, window);
+    case 'workout':
+      return syncWorkouts(userId, window);
+  }
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -137,15 +165,32 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const userId = String(event.user_id);
-  const run = syncForType(event.type, userId);
-  if (!run) {
+  const resource = resourceFor(event.type);
+  if (!resource) {
     // Unknown/ignored event type — ACK so WHOOP doesn't retry.
     console.log(`webhook: ignored event type=${event.type}`);
     return Response.json({ ok: true, ignored: true });
   }
 
+  // ── DELETE: WHOOP dropped a record → hard-delete our cached copy. ──────────
+  if (event.type.endsWith('.deleted')) {
+    try {
+      const summary = await deleteRecord(SYNC_RESOURCE[resource], userId, String(event.id));
+      console.log(`webhook: type=${event.type} deleted=${summary.deleted}`);
+      return Response.json({
+        ok: !summary.error,
+        resource: summary.resource,
+        deleted: summary.deleted,
+      });
+    } catch (err) {
+      console.error('webhook: delete failed:', err instanceof Error ? err.name : 'unknown');
+      return Response.json({ ok: false, error: 'delete failed' });
+    }
+  }
+
+  // ── CREATE / UPDATE: re-sync a short recent window of the resource. ────────
   try {
-    const summary = await run;
+    const summary = await resyncResource(resource, userId);
     console.log(
       `webhook: type=${event.type} ${summary.resource}=${summary.upserted}/${summary.fetched}`,
     );

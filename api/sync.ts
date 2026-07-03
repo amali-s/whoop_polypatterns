@@ -93,9 +93,7 @@ async function handle(request: Request): Promise<Response> {
 
   // Resolve members to sync from the token store. Single-user today, but we
   // iterate rows so this generalizes to multi-user without a code change.
-  const { data: rows, error } = await getSupabaseAdmin()
-    .from('whoop_tokens')
-    .select('user_id');
+  const { data: rows, error } = await getSupabaseAdmin().from('whoop_tokens').select('user_id');
   if (error) {
     console.error('sync: failed to list whoop_tokens:', error.message);
     return Response.json({ ok: false, error: 'Failed to list members.' }, { status: 500 });

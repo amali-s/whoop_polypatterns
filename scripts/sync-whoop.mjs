@@ -81,7 +81,9 @@ if (error) {
   process.exit(1);
 }
 if (!rows || rows.length === 0) {
-  console.error('No connected WHOOP member (whoop_tokens is empty). Complete the OAuth flow first.');
+  console.error(
+    'No connected WHOOP member (whoop_tokens is empty). Complete the OAuth flow first.',
+  );
   process.exit(1);
 }
 
