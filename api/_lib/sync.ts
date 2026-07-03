@@ -21,9 +21,13 @@
 //   collection ONCE and threads the cycle/sleep day maps into recovery rather
 //   than re-fetching.
 //
-// WHAT GOES IN `raw` (Phase 2.3 scope): the ENTIRE WHOOP record object, verbatim.
-// Typed/generated columns are deferred to Phase 2.4; here we only derive the two
-// index columns the schema needs today — `whoop_id` and `day`.
+// WHAT GOES IN `raw`: the ENTIRE WHOOP record object, verbatim. Since Phase 2.4
+// (supabase/migrations/0003_typed_columns.sql) each row ALSO carries typed
+// columns for the fields the Phase 4 charts read — populated here from the same
+// record object. `raw` remains the source of truth; the typed columns are a
+// read optimization. Score-derived columns are written NULL unless
+// score_state === 'SCORED' (WHOOP returns score: null in the other states —
+// we never guess or default them).
 //
 // ── HOW `day` IS DERIVED PER RESOURCE (read off api/_lib/whoop-types.ts) ──────
 //   The schema keys cycles/recovery/sleep by (user_id, day) and workouts by
@@ -80,7 +84,13 @@ import {
   WhoopAuthError,
 } from './whoop.js';
 import type { CollectionQuery } from './whoop.js';
-import type { WhoopCycle, WhoopRecovery, WhoopSleep, WhoopWorkout } from './whoop-types.js';
+import type {
+  WhoopCycle,
+  WhoopRecovery,
+  WhoopScoreState,
+  WhoopSleep,
+  WhoopWorkout,
+} from './whoop-types.js';
 
 // ── Public shapes ────────────────────────────────────────────────────────────
 export type SyncResource = 'cycles' | 'recovery' | 'sleep' | 'workouts';
@@ -200,13 +210,73 @@ function localDay(isoInstant: string, offset: string | null | undefined): string
 }
 
 // ── Row shaping + upsert ─────────────────────────────────────────────────────
-/** The columns we write. `id`/`created_at` are left to their DB defaults. */
+/**
+ * The columns every synced table shares. `id`/`created_at` are left to their DB
+ * defaults. The per-resource row types below add the typed columns from
+ * 0003_typed_columns.sql (Phase 2.4) — all nullable in the schema, and null
+ * whenever score_state !== 'SCORED'.
+ */
 interface CacheRow {
   user_id: string;
   whoop_id: string;
   day: string;
   raw: unknown;
   updated_at: string;
+}
+
+interface CycleRow extends CacheRow {
+  score_state: WhoopScoreState;
+  start: string;
+  end: string | null;
+  timezone_offset: string;
+  strain: number | null;
+  kilojoule: number | null;
+  average_heart_rate: number | null;
+  max_heart_rate: number | null;
+}
+
+interface RecoveryRow extends CacheRow {
+  score_state: WhoopScoreState;
+  recovery_score: number | null;
+  resting_heart_rate: number | null;
+  hrv_rmssd_milli: number | null;
+  spo2_percentage: number | null;
+  skin_temp_celsius: number | null;
+  user_calibrating: boolean | null;
+}
+
+interface SleepRow extends CacheRow {
+  score_state: WhoopScoreState;
+  start: string;
+  end: string;
+  timezone_offset: string;
+  nap: boolean;
+  sleep_performance_percentage: number | null;
+  sleep_efficiency_percentage: number | null;
+  sleep_consistency_percentage: number | null;
+  respiratory_rate: number | null;
+  total_light_sleep_time_milli: number | null;
+  total_slow_wave_sleep_time_milli: number | null;
+  total_rem_sleep_time_milli: number | null;
+  total_awake_time_milli: number | null;
+  total_in_bed_time_milli: number | null;
+  disturbance_count: number | null;
+  need_from_sleep_debt_milli: number | null;
+}
+
+interface WorkoutRow extends CacheRow {
+  score_state: WhoopScoreState;
+  start: string;
+  end: string;
+  timezone_offset: string;
+  sport_name: string;
+  sport_id: number;
+  strain: number | null;
+  average_heart_rate: number | null;
+  max_heart_rate: number | null;
+  kilojoule: number | null;
+  // Nullable even when SCORED — no-GPS activities carry no distance.
+  distance_meter: number | null;
 }
 
 /** Cycle_id/sleep_id → member-local day, used to date recovery records. */
@@ -304,9 +374,9 @@ function buildCycleRows(
   userId: string,
   records: WhoopCycle[],
   now: string,
-): { rows: CacheRow[]; skipped: number; index: DayIndex } {
+): { rows: CycleRow[]; skipped: number; index: DayIndex } {
   const index: DayIndex = new Map();
-  const rows: CacheRow[] = [];
+  const rows: CycleRow[] = [];
   let skipped = 0;
   for (const c of records) {
     const day = localDay(c.start, c.timezone_offset);
@@ -315,7 +385,23 @@ function buildCycleRows(
       continue;
     }
     index.set(c.id, day);
-    rows.push({ user_id: userId, whoop_id: String(c.id), day, raw: c, updated_at: now });
+    // score is null unless SCORED (discriminated union in whoop-types.ts).
+    const score = c.score_state === 'SCORED' ? c.score : null;
+    rows.push({
+      user_id: userId,
+      whoop_id: String(c.id),
+      day,
+      raw: c,
+      updated_at: now,
+      score_state: c.score_state,
+      start: c.start,
+      end: c.end,
+      timezone_offset: c.timezone_offset,
+      strain: score?.strain ?? null,
+      kilojoule: score?.kilojoule ?? null,
+      average_heart_rate: score?.average_heart_rate ?? null,
+      max_heart_rate: score?.max_heart_rate ?? null,
+    });
   }
   return { rows, skipped, index };
 }
@@ -324,9 +410,9 @@ function buildSleepRows(
   userId: string,
   records: WhoopSleep[],
   now: string,
-): { rows: CacheRow[]; skipped: number; index: DayIndex } {
+): { rows: SleepRow[]; skipped: number; index: DayIndex } {
   const index: DayIndex = new Map();
-  const rows: CacheRow[] = [];
+  const rows: SleepRow[] = [];
   let skipped = 0;
   for (const s of records) {
     // Skip naps: the (user_id, day) key holds ONE sleep/day; a nap must not
@@ -341,7 +427,31 @@ function buildSleepRows(
       continue;
     }
     index.set(s.id, day);
-    rows.push({ user_id: userId, whoop_id: s.id, day, raw: s, updated_at: now });
+    const score = s.score_state === 'SCORED' ? s.score : null;
+    rows.push({
+      user_id: userId,
+      whoop_id: s.id,
+      day,
+      raw: s,
+      updated_at: now,
+      score_state: s.score_state,
+      start: s.start,
+      end: s.end,
+      timezone_offset: s.timezone_offset,
+      nap: s.nap,
+      sleep_performance_percentage: score?.sleep_performance_percentage ?? null,
+      sleep_efficiency_percentage: score?.sleep_efficiency_percentage ?? null,
+      sleep_consistency_percentage: score?.sleep_consistency_percentage ?? null,
+      respiratory_rate: score?.respiratory_rate ?? null,
+      total_light_sleep_time_milli: score?.stage_summary.total_light_sleep_time_milli ?? null,
+      total_slow_wave_sleep_time_milli:
+        score?.stage_summary.total_slow_wave_sleep_time_milli ?? null,
+      total_rem_sleep_time_milli: score?.stage_summary.total_rem_sleep_time_milli ?? null,
+      total_awake_time_milli: score?.stage_summary.total_awake_time_milli ?? null,
+      total_in_bed_time_milli: score?.stage_summary.total_in_bed_time_milli ?? null,
+      disturbance_count: score?.stage_summary.disturbance_count ?? null,
+      need_from_sleep_debt_milli: score?.sleep_needed.need_from_sleep_debt_milli ?? null,
+    });
   }
   return { rows, skipped, index };
 }
@@ -350,8 +460,8 @@ function buildWorkoutRows(
   userId: string,
   records: WhoopWorkout[],
   now: string,
-): { rows: CacheRow[]; skipped: number } {
-  const rows: CacheRow[] = [];
+): { rows: WorkoutRow[]; skipped: number } {
+  const rows: WorkoutRow[] = [];
   let skipped = 0;
   for (const w of records) {
     const day = localDay(w.start, w.timezone_offset);
@@ -359,7 +469,25 @@ function buildWorkoutRows(
       skipped += 1;
       continue;
     }
-    rows.push({ user_id: userId, whoop_id: w.id, day, raw: w, updated_at: now });
+    const score = w.score_state === 'SCORED' ? w.score : null;
+    rows.push({
+      user_id: userId,
+      whoop_id: w.id,
+      day,
+      raw: w,
+      updated_at: now,
+      score_state: w.score_state,
+      start: w.start,
+      end: w.end,
+      timezone_offset: w.timezone_offset,
+      sport_name: w.sport_name,
+      sport_id: w.sport_id,
+      strain: score?.strain ?? null,
+      average_heart_rate: score?.average_heart_rate ?? null,
+      max_heart_rate: score?.max_heart_rate ?? null,
+      kilojoule: score?.kilojoule ?? null,
+      distance_meter: score?.distance_meter ?? null,
+    });
   }
   return { rows, skipped };
 }
@@ -370,8 +498,8 @@ function buildRecoveryRows(
   cycleDayIndex: DayIndex,
   sleepDayIndex: DayIndex,
   now: string,
-): { rows: CacheRow[]; skipped: number } {
-  const rows: CacheRow[] = [];
+): { rows: RecoveryRow[]; skipped: number } {
+  const rows: RecoveryRow[] = [];
   let skipped = 0;
   for (const r of records) {
     // Prefer the linked cycle's day; fall back to the linked sleep; last resort
@@ -384,9 +512,23 @@ function buildRecoveryRows(
       skipped += 1;
       continue;
     }
+    const score = r.score_state === 'SCORED' ? r.score : null;
     // whoop_id: recovery has no id of its own; it is 1:1 with a cycle, so we key
     // the stored row by cycle_id (same value the day was derived from).
-    rows.push({ user_id: userId, whoop_id: String(r.cycle_id), day, raw: r, updated_at: now });
+    rows.push({
+      user_id: userId,
+      whoop_id: String(r.cycle_id),
+      day,
+      raw: r,
+      updated_at: now,
+      score_state: r.score_state,
+      recovery_score: score?.recovery_score ?? null,
+      resting_heart_rate: score?.resting_heart_rate ?? null,
+      hrv_rmssd_milli: score?.hrv_rmssd_milli ?? null,
+      spo2_percentage: score?.spo2_percentage ?? null,
+      skin_temp_celsius: score?.skin_temp_celsius ?? null,
+      user_calibrating: score?.user_calibrating ?? null,
+    });
   }
   return { rows, skipped };
 }
