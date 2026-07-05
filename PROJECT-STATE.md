@@ -6,6 +6,83 @@
 > entry below. If your local copy lives elsewhere (untracked / another
 > machine), merge this section into it and keep that one.
 
+## Roadmap status (Phase 2.6 — data transforms) — ✅ COMPLETE (fixtures only; not yet run against real DB rows) (2026-07-05)
+
+**What's done (verified in the sandbox, 2026-07-05)**
+
+- `api/_lib/transforms.ts` — the pure, chart-ready shaping layer that turns the
+  Phase 2.4 typed cache rows into Phase 4's series. Three exported functions plus
+  their output types:
+  - `buildDailySeries(cycles, recovery, sleep, workouts, {start, end})` →
+    `DailyMetricPoint[]`: one point per calendar day across the inclusive range,
+    **including days with no data** (they appear with every field `null` so a
+    chart renders a gap, never a skipped/collapsed day). `totalSleepMilli` is
+    DERIVED from the stage columns (light + deep + rem), not read from a
+    fabricated total. Multiple workouts on a day aggregate into
+    `workoutStrainSum` / `workoutCount` (none dropped); a day with no workouts is
+    null on both.
+  - `buildSleepStageBreakdown(sleepRows)` → `SleepStageBreakdownPoint[]`: one
+    point per night for the 4.1 stacked bar, stage millis → whole minutes
+    (`Math.round`, round-half-up, stated in a comment). Nap rows are skipped —
+    guarded here even though sync.ts already excludes naps, since the input isn't
+    guaranteed pre-filtered.
+  - `buildRollingBaseline(series, accessor, windowDays, {minSamples})` →
+    `RollingBaselinePoint[]`: generic (accessor-driven, not hardcoded to HRV — the
+    same function serves 4.3's "HRV over rolling baseline" and the "RHR over
+    sleep-debt area" variant). Trailing window by calendar day; emits `mean` only
+    once ≥ `minSamples` non-null values are in the window (default 3, a parameter
+    not a magic number), else `null`.
+- **Null discipline preserved end-to-end**: every score-derived field is `null`
+  when the row is missing or `score_state !== 'SCORED'` — never 0, never an
+  interpolated guess. As a belt-and-braces guard the transforms ALSO gate on
+  `score_state`, so a stale row carrying a leftover value under a non-SCORED state
+  can't leak a number (the typed columns should already be null per 2.4, but this
+  never trusts that).
+- **Purity contract**: zero imports (no sync.ts / whoop.ts / supabase.ts, no
+  network, no DB, no I/O, no input mutation). Local input DTOs
+  (`CycleMetricRow` / `RecoveryMetricRow` / `SleepMetricRow` / `WorkoutMetricRow`)
+  mirror the `0003_typed_columns.sql` columns field-for-field (names +
+  nullability) so a future API endpoint can pass DB rows straight in with no
+  mapping layer — deliberately NOT the unexported `CycleRow`/… writer types from
+  sync.ts.
+- **Tests** (same pattern as test-refresh/test-backoff: real module, hand-built
+  synthetic fixtures, no creds, no network): `npm run test:transforms`
+  (`scripts/test-transforms.mjs`) covers a normal fully-scored day, a
+  `PENDING_SCORE` day (→ null, not 0), a day missing from every collection
+  (→ present with all-null fields), a nap row (→ excluded from the stage
+  breakdown and the daily sleep fields), multi-workout aggregation, an unscored
+  workout (→ counted, but null strain sum), millis→minutes rounding (20.5 → 21),
+  and a rolling-baseline window that stays null until `minSamples` is met then
+  emits the trailing mean. Every expectation is a hand-computed exact number, not
+  an "is not null". Fixtures use only synthetic values — no real health data.
+- Verified in the sandbox: `npm run test:transforms`, `npm run typecheck:api`,
+  `npm run lint`, `npm run format:check`, and `npm run build` all pass.
+
+**What's still open / untested**
+
+- **Not exercised against real DB rows — fixtures only.** The transforms have
+  never been fed actual `whoop_*` rows from Supabase; a future Phase 4 API
+  endpoint will be the first real caller. The DTOs are believed row-compatible by
+  construction (columns copied from 0003) but that hasn't been proven live.
+- The non-SCORED (`PENDING_SCORE` / `UNSCORABLE`) arm is still only ever
+  synthetic here (same Phase 2.2 `TODO(verify)` — those states have never been
+  observed in a live capture), though the null-path is fully unit-tested.
+- **No read/API path exists yet** — this is the pure transform layer only. Wiring
+  it into an endpoint the frontend calls is Phase 4, deliberately not built here.
+- Sleep `day` attribution is inherited unchanged from sync.ts (the open
+  start-day-vs-wake-day `TODO(verify)` there). `buildSleepStageBreakdown` groups
+  by whatever `day` it's handed, so if that attribution ever changes, the night
+  dates shift with it automatically — flagged in a header comment, no logic here
+  depends on the choice.
+
+**What needs human action**
+
+- Push is already done by you (commits `ac64b83` "task 2.6 Data transforms" +
+  `fff4363` "Task 2.6: add chart data transforms and local transform tests" are
+  on `main`). This PROJECT-STATE 2.6 section is a follow-up doc commit.
+- Optional: once a Phase 4 endpoint exists, run the transforms over a real synced
+  window and confirm the DTOs accept the DB rows with no mapping.
+
 ## Roadmap status (Phase 2.5 — free-tier pause handling) — ✅ COMPLETE & LIVE-VERIFIED (2026-07-05)
 
 **Live verification (2026-07-05):** tested end-to-end against a genuinely paused
