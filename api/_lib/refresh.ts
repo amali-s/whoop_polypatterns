@@ -42,7 +42,7 @@
 //     callback.ts uses when expires_in is absent.
 
 import { encryptToken } from './crypto.js';
-import { getSupabaseAdmin } from './supabase.js';
+import { DatabaseUnavailableError, getSupabaseAdmin, isDbUnavailableStatus } from './supabase.js';
 import { getWhoopTokens, type WhoopTokens } from './tokens.js';
 
 // WHOOP OAuth 2.0 token endpoint — identical to api/callback.ts (see header).
@@ -205,7 +205,7 @@ async function refreshTokens(current: WhoopTokens): Promise<WhoopTokens> {
   const accessTokenEncrypted = encryptToken(access_token);
   const refreshTokenEncrypted = encryptToken(nextRefreshToken);
 
-  const { error } = await getSupabaseAdmin()
+  const { error, status } = await getSupabaseAdmin()
     .from(TOKENS_TABLE)
     .update({
       access_token_encrypted: accessTokenEncrypted,
@@ -216,6 +216,16 @@ async function refreshTokens(current: WhoopTokens): Promise<WhoopTokens> {
     })
     .eq('user_id', current.userId);
   if (error) {
+    // Phase 2.5: a paused/unreachable project surfaces here too (rare — the
+    // read in getWhoopTokens usually catches it first, but the project can go
+    // away between the read and this write). Same classification as tokens.ts.
+    // Note: WHOOP already rotated the tokens above, so this loses the rotation
+    // — the next refresh attempt will be rejected and recover via the re-read
+    // path in the !tokenRes.ok branch, or ultimately require re-auth. That
+    // pre-existing risk is unchanged; we only classify the error better.
+    if (isDbUnavailableStatus(status)) {
+      throw new DatabaseUnavailableError(status);
+    }
     // error.message can carry row context; log server-side, don't echo it.
     console.error(`whoop_tokens refresh update failed: ${error.message}`);
     throw new Error('Failed to store refreshed tokens.');

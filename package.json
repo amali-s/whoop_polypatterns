@@ -12,6 +12,8 @@
     "inspect:tokens": "node --env-file=.env.local scripts/inspect-tokens.mjs",
     "test:refresh": "node scripts/test-refresh.mjs",
     "test:webhook": "node scripts/test-webhook.mjs",
+    "test:session": "node scripts/test-session.mjs",
+    "test:backoff": "node scripts/test-backoff.mjs",
     "test:whoop": "node --env-file=.env.local scripts/test-whoop.mjs",
     "sync:whoop": "node --env-file=.env.local scripts/sync-whoop.mjs",
     "build": "tsc -b && vite build",

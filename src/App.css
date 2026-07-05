@@ -70,6 +70,22 @@
   }
 }
 
+/* Spinner for the 'waking' state (database paused/waking, Phase 2.5). */
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Connected status row with a small "live" dot. */
 .status {
   display: inline-flex;

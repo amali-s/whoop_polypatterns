@@ -1,14 +1,6 @@
 import { useEffect, useState } from 'react';
 import './App.css';
-
-// Shape of /api/session's JSON. The server never returns token material — only
-// the connection status plus non-sensitive metadata.
-interface SessionStatus {
-  connected: boolean;
-  userId?: string;
-  scope?: string | null;
-  expiresAt?: string | null;
-}
+import { checkSessionWithRetry, type SessionStatus } from './session-check';
 
 // A WHOOP provider error forwarded by /api/callback via query params.
 interface OAuthError {
@@ -17,7 +9,11 @@ interface OAuthError {
   hint?: string;
 }
 
-type ConnectionState = 'loading' | 'connected' | 'disconnected';
+// 'waking' (Phase 2.5): /api/session said the database is unavailable —
+// likely the free-tier Supabase project paused/waking — and the retry loop in
+// session-check.ts is still running. Distinct from 'loading' so the user sees
+// WHY the check is taking longer than a beat.
+type ConnectionState = 'loading' | 'waking' | 'connected' | 'disconnected';
 
 /** Read whoop_error[...] params that /api/callback may have appended to the URL. */
 function readOAuthError(): OAuthError | null {
@@ -45,6 +41,9 @@ function clearOAuthErrorParams(): void {
 function App() {
   const [state, setState] = useState<ConnectionState>('loading');
   const [session, setSession] = useState<SessionStatus | null>(null);
+  // True when the waking-retry budget ran out without ever reaching the
+  // server/database — used to explain the disconnected screen honestly.
+  const [unreachable, setUnreachable] = useState(false);
   // Read any provider error straight from the URL on first render (no effect
   // setState). The effect below only strips the params from the address bar.
   const [oauthError, setOAuthError] = useState<OAuthError | null>(readOAuthError);
@@ -56,24 +55,34 @@ function App() {
     }
   }, []);
 
-  // Ask the server whether this browser's session is valid. Any failure (network
-  // error or non-200) degrades safely to the disconnected state.
+  // Ask the server whether this browser's session is valid. A `waking:true`
+  // 503 (paused/waking Supabase project, Phase 2.5) or a timeout is retried
+  // with capped backoff by checkSessionWithRetry — the UI sits in the 'waking'
+  // state meanwhile. Genuine failures still degrade straight to disconnected.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/session')
-      .then((res) => (res.ok ? (res.json() as Promise<SessionStatus>) : { connected: false }))
-      .then((data) => {
-        if (cancelled) {
-          return;
-        }
-        setSession(data.connected ? data : null);
-        setState(data.connected ? 'connected' : 'disconnected');
-      })
-      .catch(() => {
+    void checkSessionWithRetry({
+      onWaking: () => {
         if (!cancelled) {
-          setState('disconnected');
+          setState('waking');
         }
-      });
+      },
+      isCancelled: () => cancelled,
+    }).then((outcome) => {
+      if (cancelled || outcome === null) {
+        return;
+      }
+      if (outcome.kind === 'connected') {
+        setSession(outcome.session);
+        setState('connected');
+        return;
+      }
+      // 'disconnected' (definitive), 'error' (genuine failure), and
+      // 'unreachable' (retry budget exhausted) all land on the disconnected
+      // screen; 'unreachable' additionally shows the resume-your-project hint.
+      setUnreachable(outcome.kind === 'unreachable');
+      setState('disconnected');
+    });
     return () => {
       cancelled = true;
     };
@@ -99,7 +108,7 @@ function App() {
         </div>
       )}
 
-      <section className="card" aria-busy={state === 'loading'}>
+      <section className="card" aria-busy={state === 'loading' || state === 'waking'}>
         <h1>WHOOP Dashboard</h1>
 
         {state === 'loading' && (
@@ -108,8 +117,25 @@ function App() {
           </p>
         )}
 
+        {state === 'waking' && (
+          <>
+            <span className="spinner" aria-hidden="true" />
+            <p className="muted" role="status">
+              Waking up your database — free-tier projects doze off when idle. Retrying for up to 30
+              seconds…
+            </p>
+          </>
+        )}
+
         {state === 'disconnected' && (
           <>
+            {unreachable && (
+              <p className="muted" role="alert">
+                We couldn’t reach your database. Free-tier Supabase projects pause after about a
+                week of inactivity and have to be resumed from the Supabase dashboard — resume it
+                there, then refresh this page.
+              </p>
+            )}
             <p className="muted">Connect your WHOOP account to pull in your data.</p>
             {/* Top-level redirect (302 flow), not a fetch — use a real navigation. */}
             <a className="btn btn-primary" href="/api/auth">

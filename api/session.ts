@@ -26,11 +26,15 @@
 // Responses (always JSON):
 //   200 { connected: false }                                  — no/invalid session
 //   200 { connected: true, userId, scope, expiresAt }         — linked
+//   503 { connected: false, waking: true }                    — database unavailable,
+//       likely the paused/waking free-tier Supabase project (Phase 2.5); the
+//       SPA retries with backoff instead of showing "not connected"
 //   500 { connected: false, error: 'Failed to check session.' } — unexpected error
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { SESSION_COOKIE, decodeSession } from './_lib/tokens.js';
 import { ensureFreshTokens } from './_lib/refresh.js';
+import { DatabaseUnavailableError } from './_lib/supabase.js';
 
 /** Parse the request's Cookie header into a name→value map (matches callback.ts). */
 function parseCookies(header: string | undefined): Record<string, string> {
@@ -89,6 +93,16 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       expiresAt: tokens.expiresAt ? tokens.expiresAt.toISOString() : null,
     });
   } catch (err) {
+    // Phase 2.5: the Supabase project being paused/unreachable is NOT an auth
+    // failure — the token row is (presumably) still there; we just can't reach
+    // it. Tell the SPA to wait and retry rather than showing "not connected".
+    // The body stays generic: no status codes, no dependency names, no tokens.
+    if (err instanceof DatabaseUnavailableError) {
+      console.error(`Session check: database unavailable (status ${err.status}).`);
+      res.setHeader('Retry-After', '5');
+      json(res, 503, { connected: false, waking: true });
+      return;
+    }
     // ensureFreshTokens throws on a real problem: a ciphertext that won't decrypt
     // (integrity/key) or a refresh rejected by WHOOP. Log server-side; return a
     // generic, token-free response. Crucially we do NOT downgrade this to

@@ -16,7 +16,7 @@
 //     duration of one serverless request. Nothing here logs token material.
 
 import { decryptToken, encryptToken } from './crypto.js';
-import { getSupabaseAdmin } from './supabase.js';
+import { DatabaseUnavailableError, getSupabaseAdmin, isDbUnavailableStatus } from './supabase.js';
 
 const TOKENS_TABLE = 'whoop_tokens';
 
@@ -42,13 +42,19 @@ export interface WhoopTokens {
  */
 export async function getWhoopTokens(userId: string): Promise<WhoopTokens | null> {
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
+  const { data, error, status } = await supabase
     .from(TOKENS_TABLE)
     .select('access_token_encrypted, refresh_token_encrypted, expires_at, scope')
     .eq('user_id', userId)
     .maybeSingle();
 
   if (error) {
+    // A paused/unreachable Supabase project fails at the gateway level (Phase
+    // 2.5) — distinguish it from a genuine query error so /api/session can
+    // report "waking" instead of a failure that looks like a broken session.
+    if (isDbUnavailableStatus(status)) {
+      throw new DatabaseUnavailableError(status);
+    }
     throw new Error(`Failed to read whoop_tokens: ${error.message}`);
   }
   if (!data) {
