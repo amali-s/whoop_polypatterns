@@ -47,9 +47,9 @@
 **What needs human action (sandbox had no network / no GitHub credentials)**
 
 - [x] Apply `0003_typed_columns.sql` to the live Supabase project — **done
-  2026-07-04**. Verified via `information_schema.columns`: all columns present
-  on `whoop_cycles`, `whoop_recovery`, `whoop_sleep`, `whoop_workouts` with the
-  correct data types, matching the migration file exactly.
+      2026-07-04**. Verified via `information_schema.columns`: all columns present
+      on `whoop_cycles`, `whoop_recovery`, `whoop_sleep`, `whoop_workouts` with the
+      correct data types, matching the migration file exactly.
 - Re-run a live sync (`npm run sync:whoop`) from your machine and confirm the
   typed columns populate — sync was NOT live-tested from here.
 - Push the commits: the sandbox has no GitHub credentials for this repo, so
