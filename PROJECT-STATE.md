@@ -6,7 +6,16 @@
 > entry below. If your local copy lives elsewhere (untracked / another
 > machine), merge this section into it and keep that one.
 
-## Roadmap status (Phase 2.5 — free-tier pause handling)
+## Roadmap status (Phase 2.5 — free-tier pause handling) — ✅ COMPLETE & LIVE-VERIFIED (2026-07-05)
+
+**Live verification (2026-07-05):** tested end-to-end against a genuinely paused
+Supabase project on the Vercel production deployment. Both paused-DB paths
+confirmed working: (1) an already-connected browser polling `/api/session`
+degrades through the retry budget to the "We couldn't reach your database…
+resume it in the Supabase dashboard, then refresh" screen instead of a false
+"Connect WHOOP"; (2) connecting fresh against the paused project shows the
+`database_unavailable` banner on the OAuth bounce-back. Resuming the project
+from the Supabase dashboard and refreshing reconnects normally.
 
 **Follow-up fix (2026-07-05, after a live paused-DB test): OAuth callback path.**
 The first 2.5 cut only taught the POLLING endpoint (`/api/session`) to detect a
@@ -108,22 +117,21 @@ retry loop; a LOGGED-OUT user connecting gets the banner on the OAuth bounce-bac
   special waking handling — a cron run during a pause just fails that day and
   the next run catches up (sync windows overlap by design).
 
-**What needs human action (cannot be verified from the sandbox)**
+**Human verification — DONE (2026-07-05)**
 
-- A real pause cannot be triggered from here (it requires 7 days of genuine
-  inactivity on the live project, and resuming is a manual dashboard action).
-  To verify end-to-end for real: let the project pause (or temporarily pause
-  it from the Supabase dashboard if the plan allows), load the SPA, and
-  confirm (a) the spinner + "waking up your database" copy appears rather than
-  the Connect WHOOP screen, (b) after ~30s it degrades to the disconnected
-  screen WITH the resume-it-from-the-dashboard hint, and (c) after clicking
-  Resume in the dashboard and the project coming back, a refresh reconnects
-  normally.
+- [x] End-to-end live test against a real paused project on the Vercel prod
+      deployment — confirmed working (see the "Live verification" note at the
+      top of this section). Both the connected-user retry/resume screen and the
+      logged-out-user OAuth `database_unavailable` banner behave as designed;
+      resuming from the dashboard reconnects.
+- [x] Commits pushed to `origin/main` (this machine has GitHub credentials;
+      pushing `main` auto-deployed Vercel prod).
+
+**Still worth a periodic glance (not blocking)**
+
 - Confirm in the Vercel deploy logs (any morning) that the daily `/api/sync`
   cron is actually running — it is the thing keeping the project from pausing,
-  which is why no second cron was added.
-- Push the commits from your machine (sandbox has no GitHub credentials, same
-  as prior phases).
+  which is why no second keep-warm cron was added.
 
 ## Roadmap status (Phase 2.4 — Supabase typed columns)
 
