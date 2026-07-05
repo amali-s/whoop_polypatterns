@@ -8,6 +8,30 @@
 
 ## Roadmap status (Phase 2.5 — free-tier pause handling)
 
+**Follow-up fix (2026-07-05, after a live paused-DB test): OAuth callback path.**
+The first 2.5 cut only taught the POLLING endpoint (`/api/session`) to detect a
+paused DB. A live test surfaced the gap: a **logged-out** browser hitting a
+paused project never sees the "waking" screen, because `/api/session`
+short-circuits to `connected:false` at the cookie check **before any DB read**.
+The user then clicks Connect WHOOP, completes OAuth, and the callback's token
+UPSERT hits the paused project — which used to fail with a cryptic
+`whoop_tokens upsert failed: TypeError: fetch failed` → "Failed to store
+tokens." Fixed in `api/callback.ts`: the upsert now destructures `status` and,
+when `isDbUnavailableStatus(status)` (same classifier as session/tokens/refresh
+— the fetch-level failure surfaces as the status-0 sentinel), redirects back to
+the SPA with `?whoop_error=database_unavailable` + a clear description/hint
+instead of the generic 500. This reuses the existing `whoop_error` banner in
+`App.tsx` (verified in the browser: banner shows "Your database is paused or
+waking up… Resume it in the Supabase dashboard, then click Connect WHOOP
+again"). Genuine upsert errors still return the flat 500. Covered by
+`npm run test:callback` (real callback handler, mocked WHOOP+Supabase fetch:
+paused-DB upsert → database_unavailable redirect with NO session cookie set and
+no token material in the URL; genuine 500 → "Failed to store tokens"; healthy
+upsert → session cookie + redirect). NOTE: this means the two paused-DB UIs are
+by design — an ALREADY-CONNECTED user polling `/api/session` gets the spinner +
+retry loop; a LOGGED-OUT user connecting gets the banner on the OAuth bounce-back
+(retrying can't help there — connecting itself requires the DB).
+
 **What's done (verified in the sandbox, 2026-07-05)**
 
 - **Facts verified against the live Supabase docs before coding** (the roadmap

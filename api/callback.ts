@@ -53,7 +53,7 @@
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { encryptToken } from './_lib/crypto.js';
-import { getSupabaseAdmin } from './_lib/supabase.js';
+import { getSupabaseAdmin, isDbUnavailableStatus } from './_lib/supabase.js';
 import { SESSION_COOKIE, encodeSession } from './_lib/tokens.js';
 
 // WHOOP OAuth 2.0 token endpoint (see header note for verification).
@@ -313,7 +313,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
     const now = new Date().toISOString();
 
-    const { error } = await getSupabaseAdmin()
+    const { error, status } = await getSupabaseAdmin()
       .from('whoop_tokens')
       .upsert(
         {
@@ -329,6 +329,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     if (error) {
       // error.message can carry row context; log server-side, don't echo it.
       console.error(`whoop_tokens upsert failed: ${error.message}`);
+      // Phase 2.5: a paused/unreachable free-tier Supabase project fails HERE,
+      // during the OAuth callback, as a gateway status / fetch-level failure
+      // (postgrest-js surfaces it as status 0/540/etc — see supabase.ts). This
+      // is the path a LOGGED-OUT user hits: /api/session short-circuits to
+      // connected:false without a DB read, so they never see the polling
+      // "waking" screen — they click Connect WHOOP and land here. Instead of a
+      // cryptic "Failed to store tokens", redirect back to the SPA with a clear,
+      // banner-friendly message telling them the DB is paused and to resume it.
+      // We reuse the existing whoop_error banner mechanism; the message names no
+      // internal dependency beyond "database" and carries no token material.
+      if (isDbUnavailableStatus(status)) {
+        const params = new URLSearchParams({
+          whoop_error: 'database_unavailable',
+          whoop_error_description:
+            'Your database is paused or waking up, so we couldn’t save your connection.',
+          whoop_error_hint:
+            'Free-tier Supabase projects pause after inactivity. Resume it in the Supabase dashboard, then click Connect WHOOP again.',
+        });
+        redirect(res, `${APP_LANDING_PATH}?${params.toString()}`, [clearState]);
+        return;
+      }
       fail(res, 500, 'Failed to store tokens.', [clearState]);
       return;
     }

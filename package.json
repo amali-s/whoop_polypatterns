@@ -14,6 +14,7 @@
     "test:webhook": "node scripts/test-webhook.mjs",
     "test:session": "node scripts/test-session.mjs",
     "test:backoff": "node scripts/test-backoff.mjs",
+    "test:callback": "node scripts/test-callback.mjs",
     "test:whoop": "node --env-file=.env.local scripts/test-whoop.mjs",
     "sync:whoop": "node --env-file=.env.local scripts/sync-whoop.mjs",
     "build": "tsc -b && vite build",
