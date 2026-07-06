@@ -6,6 +6,157 @@
 > entry below. If your local copy lives elsewhere (untracked / another
 > machine), merge this section into it and keep that one.
 
+## Roadmap status (Phase 2.7 — rate-limit handling) — ✅ COMPLETE & LIVE-VERIFIED (2026-07-05)
+
+**Facts verified against the live docs before coding**
+(https://developer.whoop.com/docs/developing/rate-limiting, re-checked
+2026-07-05 — matched the planning notes exactly):
+
+- Two limits per client: **100 requests/minute** AND **10,000 requests/day**;
+  breaching either returns **HTTP 429**.
+- Every response carries draft-polli-ratelimit-headers-05 headers:
+  `X-RateLimit-Limit` (multi-value, e.g.
+  `"100, 100;window=60, 10000;window=86400"` — the FIRST value is the quota of
+  whichever window the client is CLOSEST to exhausting; the `;window=60` /
+  `;window=86400` params tell minute from day), `X-RateLimit-Remaining`, and
+  `X-RateLimit-Reset` (seconds until Remaining resets).
+
+**What's done (verified on this machine, 2026-07-05)**
+
+- **`api/_lib/whoop.ts`** — all internal to `whoopRequest()` and its helpers;
+  no public signature (`getProfile`/`getBodyMeasurement`/`getCycles`/
+  `getRecovery`/`getSleep`/`getWorkouts`/`fetchCollection`/`fetchCollectionPage`)
+  changed:
+  - `parseRateLimitHeaders(limit, remaining, reset)` — pure and exported (same
+    testability contract as `parseRetryAfter`). Identifies the closest window
+    by matching the first bare number in `X-RateLimit-Limit` against the
+    `;window=N` entries: exactly one match with window=60 → `'minute'`,
+    86400 → `'day'`; missing/garbled/ambiguous → `'unknown'` (which keeps the
+    safer retry behavior). Parsed off EVERY response, success and failure.
+  - `WhoopRateLimitError extends WhoopApiError` carrying
+    `{ window: 'minute' | 'day' | 'unknown', remaining, resetSeconds }` — now
+    thrown for every 429 that is not retried further (previously a generic
+    `WhoopApiError`). Carries status + endpoint path + WHOOP's body only, no
+    token material (unchanged discipline).
+  - **Day-window 429 fails FAST**: zero retries, zero sleeps — even when
+    `Retry-After` is present. Rationale: the retry budget's 30s-capped waits
+    cannot refill a quota that resets in up to 24h; they only burned function
+    execution time. Minute/unknown 429s keep the pre-existing
+    retry-with-backoff behavior, `Retry-After` still authoritative over the
+    computed jittered backoff.
+  - **Proactive throttle**: the most recent Remaining/Reset observation lives
+    in module-level state (deliberately no locking — the module is server-only
+    and sync.ts issues every request SEQUENTIALLY per its concurrency note).
+    Before each logical request, if the last observed Remaining ≤
+    `RATE_LIMIT_SAFETY_BUFFER` (**3**, a named constant), sleep out the
+    remainder of the reported reset (capped at `MAX_BACKOFF_MS`) instead of
+    firing into a real 429. Zero added latency when Remaining is comfortable
+    (unit-asserted: no `setTimeout` call at all). Day-window observations are
+    NOT slept on — same 24h rationale; the request fires and the fail-fast 429
+    path reports it. Each observation is consumed once; `resetRateLimitTracking()`
+    is exported for test isolation.
+  - 5xx / network-failure / plain-4xx / 401 paths are byte-for-byte the same
+    behavior as before (regression-covered).
+- **`api/_lib/sync.ts`** — `classifyFetchError` gains one branch: a
+  `WhoopRateLimitError` becomes a resource-level error string that names the
+  window (`WHOOP rate limit hit (429, day window) @ /v2/cycle`), so the daily
+  cron log says WHY a run stopped. Counts/status/window only — no tokens, no
+  URLs with query strings. No orchestration change: after a day-window hit,
+  the remaining resources fail equally fast (zero retries each), so the run
+  ends quickly instead of looping; the next day's cron catches up (sync
+  windows overlap by design).
+- **Tests** (`npm run test:ratelimit`, `scripts/test-ratelimit.mjs` — same
+  pattern as test-refresh: the REAL module graph, mocked global `fetch`, no
+  creds, no network; plus a recorded-and-instant `setTimeout` patch so every
+  backoff/Retry-After/throttle wait is asserted exactly and the script runs
+  instantly): header parsing (docs example → minute; day-first → day; absent →
+  null; bare/garbled/unknown-window → `'unknown'`); throttle no-op (ZERO
+  sleeps) at comfortable Remaining; throttle sleeps ≈ reset at Remaining ≤ 3
+  and consumes the observation (third call doesn't re-sleep); day-window
+  near-limit NOT proactively slept on; minute 429 retried with `Retry-After`
+  winning EXACTLY (7000ms recorded against a 60s backoff base); computed
+  backoff used when no `Retry-After`; day 429 → `WhoopRateLimitError`, one
+  fetch, zero sleeps despite `Retry-After: 30`; exhausted minute budget →
+  typed error with `window: 'minute'`; 429 without headers → retried then
+  `window: 'unknown'`; 500→200 retry, network-throw→200 retry, plain 404
+  no-retry, persistent 500 → still the GENERIC `WhoopApiError`. All 37 checks
+  pass.
+- Verified on this machine: `npm run typecheck:api`, `npm run lint`,
+  `npm run format:check`, `npm run test:ratelimit`, and the pre-existing
+  `test:refresh` / `test:webhook` / `test:session` / `test:backoff` /
+  `test:transforms` / `test:callback` all pass (nothing here touches them —
+  the Phase 2.5 DB-pause backoff in `src/session-check.ts` is a separate
+  system and was not modified).
+- **Live verification (2026-07-05)** — this session ran on the user's machine
+  with `.env.local` present (the task brief assumed a sandbox without creds;
+  that assumption didn't hold, so the live checks were run rather than
+  deferred):
+  - `npm run test:whoop` passes end-to-end THROUGH the new code (all six
+    endpoints, pagination, typed error path).
+  - A one-off scratchpad capture (not committed) made one real
+    `/v2/user/profile/basic` call and printed only the `x-ratelimit-*`
+    headers: `X-RateLimit-Limit` was **exactly**
+    `"100, 100;window=60, 10000;window=86400"`, Remaining `"99"`, Reset
+    `"60"` — the docs example byte-for-byte, and `parseRateLimitHeaders`
+    identified `minute` / 99 / 60. The header-format TODO(verify) from the
+    plan is therefore CLOSED for the minute-closest case.
+- **Vercel plan + function timeout — CONFIRMED, not guessed (2026-07-05)**:
+  queried the Vercel API with the CLI's token — team plan is **hobby**;
+  project `resourceConfig` shows **Fluid Compute on** and **no
+  `maxDuration`/`functions` override anywhere** (vercel.json has none), so the
+  platform default max duration (currently **300s** on all plans) applies to
+  `/api/sync`.
+
+**Live results worth knowing (2026-07-05)**
+
+- `npm run test:whoop` passes end-to-end THROUGH the new rate-limit code — all
+  six endpoints, pagination cursor advance, and the typed error path — so the
+  parsing/throttle additions don't regress the live fetch layer.
+- A one-off header capture on a REAL `/v2/user/profile/basic` call showed
+  `X-RateLimit-Limit: "100, 100;window=60, 10000;window=86400"`, Remaining
+  `"99"`, Reset `"60"` — the docs example byte-for-byte, parsed as
+  `minute` / 99 / 60. The header-format TODO(verify) is CLOSED for the
+  minute-closest case (day-window-first and a real 429 remain unobserved).
+- **Vercel plan confirmed via the Vercel API, not guessed: Hobby, Fluid
+  Compute on, no `maxDuration` override → the 300s platform default.** The one
+  residual is a persistent _5xx_ storm (rate-limit 429s now fail fast and no
+  longer contribute) that could sleep ~6 min across 4 sequential resources and
+  exceed 300s — acceptable for a daily cron whose next overlapping run catches
+  up, with `functions.maxDuration` as the lever if it ever bites.
+
+**What's still open**
+
+- **A real 429 has never been observed live** (the account never gets near
+  100/min), so the day-window-FIRST header variant (first value `10000` when
+  the day quota is the closest) is inferred from the docs' "first value =
+  closest limit" rule, not observed — flagged `TODO(verify)` in the whoop.ts
+  header. If WHOOP ever formats it differently the parser degrades to
+  `'unknown'`, which keeps the safer retry-with-backoff behavior (never the
+  fail-fast path) — wrong-window misclassification fails soft.
+- **Residual timeout math (5xx storms, NOT rate limits)**: a persistent 5xx
+  storm can still sleep up to ~90s per resource (3 retries × 30s cap) ≈ 6
+  minutes across 4 sequential resources, exceeding the 300s default. Day-window
+  429 storms no longer contribute (fail fast). Accepted for now: it's a daily
+  cron, a timed-out run just means that day's sync is late and the next run's
+  overlapping window catches up. If it ever bites, the levers are
+  `functions.maxDuration` in vercel.json or a smaller `maxRetries` for the
+  cron path.
+- The throttle's single-flight assumption holds only as long as sync.ts stays
+  sequential (documented there). If parallel WHOOP calls are ever introduced,
+  revisit — the one-time-use refresh tokens forbid that anyway.
+- The minute-window quota is generous (100/min) versus a worst-case full sync
+  (~4 × 100 pages + refresh = well under 100 requests in practice for a 7-day
+  window, but a full-history backfill could exceed it — which is exactly what
+  the throttle + minute-window retry now absorb).
+
+**What needs human action**
+
+- Commit + push (`main` auto-deploys Vercel prod). Everything above is
+  verified locally but not yet committed by this session.
+- Nothing else: the Vercel plan/timeout confirmation and the live smoke test —
+  both flagged as human actions in the task brief — were completed from this
+  machine (see above).
+
 ## Roadmap status (Phase 2.6 — data transforms) — ✅ COMPLETE (fixtures only; not yet run against real DB rows) (2026-07-05)
 
 **What's done (verified in the sandbox, 2026-07-05)**

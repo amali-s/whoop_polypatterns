@@ -82,6 +82,7 @@ import {
   getWorkouts,
   WhoopApiError,
   WhoopAuthError,
+  WhoopRateLimitError,
 } from './whoop.js';
 import type { CollectionQuery } from './whoop.js';
 import type {
@@ -354,6 +355,21 @@ function classifyFetchError(
 ): ResourceSyncSummary {
   if (err instanceof WhoopAuthError) {
     throw new SyncReauthRequiredError(userId, err);
+  }
+  // Rate limit (Phase 2.7): name the exhausted window so the cron log says
+  // WHY. A day-window hit means the quota refills in up to 24h — whoop.ts has
+  // already failed fast (zero retries), and any remaining resources this run
+  // will fail equally fast, so the run ends quickly rather than looping.
+  if (err instanceof WhoopRateLimitError) {
+    return {
+      resource,
+      fetched: 0,
+      upserted: 0,
+      skipped: 0,
+      deduped: 0,
+      errored: 0,
+      error: `WHOOP rate limit hit (429, ${err.window} window) @ ${err.endpoint}`,
+    };
   }
   if (err instanceof WhoopApiError) {
     return {

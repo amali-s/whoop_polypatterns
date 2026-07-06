@@ -37,6 +37,34 @@
 //       read:sleep / read:workout / read:profile / read:body_measurement) — all
 //       six are already requested by api/auth.ts, so a 401/403 here is a real
 //       signal, not a missing-scope misconfiguration.
+//
+// RATE LIMITS (Phase 2.7 — verified against the live docs 2026-07-05,
+// https://developer.whoop.com/docs/developing/rate-limiting):
+//     - Two limits per client: 100 requests/minute AND 10,000 requests/day.
+//       Breaching either returns HTTP 429.
+//     - Every response carries draft-polli-ratelimit-headers-05 headers, e.g.
+//         X-RateLimit-Limit:     "100, 100;window=60, 10000;window=86400"
+//         X-RateLimit-Remaining: "98"
+//         X-RateLimit-Reset:     "3"   (seconds until Remaining resets)
+//       X-RateLimit-Limit lists ALL applicable limits; the FIRST bare number is
+//       the quota of whichever window the client is closest to exhausting, and
+//       matching it against the `;window=60` / `;window=86400` entries tells a
+//       minute-window warning apart from a day-window one.
+//     - Handling here: parseRateLimitHeaders() reads the headers off EVERY
+//       response; a day-window 429 fails fast as WhoopRateLimitError (a capped
+//       30s backoff cannot refill a quota that resets in up to 24h — retrying
+//       only burns function time); a minute-window/unknown 429 keeps the
+//       retry-with-backoff behavior (Retry-After authoritative when present);
+//       and a small proactive throttle sleeps until the reported reset when
+//       Remaining drops to RATE_LIMIT_SAFETY_BUFFER or below, so a sequential
+//       multi-request sync stops just short of a real 429 instead of eating it.
+//     - The multi-value X-RateLimit-Limit format was OBSERVED LIVE (2026-07-05,
+//       one real /v2/user/profile/basic call): exactly
+//       "100, 100;window=60, 10000;window=86400" with Remaining "99" / Reset
+//       "60" — matching the docs example byte-for-byte, parsed as the minute
+//       window. TODO(verify): the day-window-first variant (first number 10000
+//       when the day quota is the closest) is inferred from the docs' "first
+//       value = closest limit" rule, never observed live — nor has a real 429.
 
 import { getValidAccessToken } from './refresh.js';
 import type {
@@ -79,6 +107,18 @@ const MAX_BACKOFF_MS = 30_000;
 const DEFAULT_MAX_PAGES = 100;
 const DEFAULT_MAX_RECORDS = 10_000;
 
+// ── Rate-limit tunables (Phase 2.7 — see the RATE LIMITS header note) ────────
+/** The two quota windows WHOOP reports, in seconds (60s and 86400s). */
+const MINUTE_WINDOW_SECONDS = 60;
+const DAY_WINDOW_SECONDS = 86_400;
+/**
+ * Proactive-throttle buffer: when the last observed X-RateLimit-Remaining is at
+ * or below this, sleep until the reported reset instead of firing and eating a
+ * real 429. Small on purpose — a normal single-user sync never gets near the
+ * 100/min quota, so this must be a zero-latency no-op in the common case.
+ */
+const RATE_LIMIT_SAFETY_BUFFER = 3;
+
 // ── Errors ──────────────────────────────────────────────────────────────────
 /**
  * Thrown for any non-success WHOOP response (and for network/parse failures
@@ -120,6 +160,55 @@ export class WhoopAuthError extends WhoopApiError {
       body: opts.body,
     });
     this.name = 'WhoopAuthError';
+  }
+}
+
+/** Which WHOOP quota window a rate-limit observation refers to. */
+export type WhoopRateLimitWindow = 'minute' | 'day' | 'unknown';
+
+/**
+ * Rate-limit state parsed off a response's X-RateLimit-* headers. `window` is
+ * whichever quota the client is CLOSEST to exhausting (the first value in the
+ * multi-value X-RateLimit-Limit header); `remaining`/`resetSeconds` describe
+ * that window. Fields are null when the corresponding header is missing/bad.
+ */
+export interface WhoopRateLimitInfo {
+  window: WhoopRateLimitWindow;
+  remaining: number | null;
+  resetSeconds: number | null;
+}
+
+/**
+ * A 429 that will not be retried further. Distinct from the generic
+ * WhoopApiError so callers (sync.ts, the cron) can log WHICH quota was hit and
+ * react accordingly: a `day` window means the quota refills in up to 24h —
+ * stop for the day, don't loop; `minute` means the budget was spent on retries
+ * that never cleared a <=60s window (rare); `unknown` means WHOOP sent a 429
+ * without parseable rate-limit headers. Carries no token material.
+ */
+export class WhoopRateLimitError extends WhoopApiError {
+  readonly window: WhoopRateLimitWindow;
+  /** X-RateLimit-Remaining at the final 429 (usually 0), or null if absent. */
+  readonly remaining: number | null;
+  /** Seconds until the exhausted window resets, or null if absent. */
+  readonly resetSeconds: number | null;
+
+  constructor(opts: {
+    endpoint: string;
+    body?: unknown;
+    window: WhoopRateLimitWindow;
+    remaining: number | null;
+    resetSeconds: number | null;
+  }) {
+    super(`WHOOP rate limit exceeded (429, ${opts.window} window).`, {
+      status: 429,
+      endpoint: opts.endpoint,
+      body: opts.body,
+    });
+    this.name = 'WhoopRateLimitError';
+    this.window = opts.window;
+    this.remaining = opts.remaining;
+    this.resetSeconds = opts.resetSeconds;
   }
 }
 
@@ -175,7 +264,8 @@ function backoffDelay(attempt: number, baseMs: number): number {
 
 /**
  * Parse a Retry-After header (delta-seconds OR an HTTP-date) into ms, or null.
- * Honoring this seeds Phase 2.7 rate-limit handling. Capped at MAX_BACKOFF_MS.
+ * Authoritative over the computed backoff when present (Phase 2.7 keeps that
+ * contract). Capped at MAX_BACKOFF_MS.
  */
 function parseRetryAfter(header: string | null): number | null {
   if (!header) {
@@ -190,6 +280,139 @@ function parseRetryAfter(header: string | null): number | null {
     return null;
   }
   return Math.min(MAX_BACKOFF_MS, Math.max(0, when - Date.now()));
+}
+
+// ── Rate-limit header parsing + proactive throttle (Phase 2.7) ──────────────
+/** Parse a header expected to hold a non-negative integer, or null. */
+function parseNonNegativeInt(header: string | null): number | null {
+  if (!header) {
+    return null;
+  }
+  const trimmed = header.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+  return Number(trimmed);
+}
+
+/**
+ * Identify which quota window the multi-value X-RateLimit-Limit header says the
+ * client is closest to exhausting. Per draft-polli-ratelimit-headers-05 (and
+ * WHOOP's docs example "100, 100;window=60, 10000;window=86400"), the FIRST
+ * bare number is the quota of the closest window; the `;window=N` entries name
+ * each quota's window in seconds. We match the first number against the
+ * windowed entries — exactly one match with window=60 → 'minute', 86400 →
+ * 'day'; anything unparseable or ambiguous → 'unknown' (which keeps the safer
+ * retry-with-backoff behavior).
+ */
+function identifyWindow(limitHeader: string | null): WhoopRateLimitWindow {
+  if (!limitHeader) {
+    return 'unknown';
+  }
+  const items = limitHeader
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (items.length === 0) {
+    return 'unknown';
+  }
+  const head = /^(\d+)/.exec(items[0]);
+  if (!head) {
+    return 'unknown';
+  }
+  const activeQuota = Number(head[1]);
+  const matchedWindows: number[] = [];
+  for (const item of items) {
+    const m = /^(\d+)\s*;.*\bwindow=(\d+)/.exec(item);
+    if (m && Number(m[1]) === activeQuota) {
+      matchedWindows.push(Number(m[2]));
+    }
+  }
+  if (matchedWindows.length !== 1) {
+    return 'unknown';
+  }
+  if (matchedWindows[0] === MINUTE_WINDOW_SECONDS) {
+    return 'minute';
+  }
+  if (matchedWindows[0] === DAY_WINDOW_SECONDS) {
+    return 'day';
+  }
+  return 'unknown';
+}
+
+/**
+ * Pure parser for the three X-RateLimit-* headers (pass `headers.get(...)`
+ * values). Returns null when none of the three headers are present (a response
+ * that carries no rate-limit info at all — nothing to observe).
+ */
+export function parseRateLimitHeaders(
+  limitHeader: string | null,
+  remainingHeader: string | null,
+  resetHeader: string | null,
+): WhoopRateLimitInfo | null {
+  if (limitHeader === null && remainingHeader === null && resetHeader === null) {
+    return null;
+  }
+  return {
+    window: identifyWindow(limitHeader),
+    remaining: parseNonNegativeInt(remainingHeader),
+    resetSeconds: parseNonNegativeInt(resetHeader),
+  };
+}
+
+/**
+ * Most recently observed rate-limit state, module-level. This module is
+ * server-only and effectively single-flight (sync.ts issues every request
+ * SEQUENTIALLY — see its CONCURRENCY note), so a plain variable is sufficient;
+ * no cross-request locking is needed or attempted.
+ */
+let lastRateLimitObservation: {
+  window: WhoopRateLimitWindow;
+  remaining: number;
+  resetSeconds: number;
+  observedAtMs: number;
+} | null = null;
+
+/** Record a response's rate-limit headers for the next request's throttle. */
+function observeRateLimit(info: WhoopRateLimitInfo | null): void {
+  if (!info || info.remaining === null || info.resetSeconds === null) {
+    return;
+  }
+  lastRateLimitObservation = {
+    window: info.window,
+    remaining: info.remaining,
+    resetSeconds: info.resetSeconds,
+    observedAtMs: Date.now(),
+  };
+}
+
+/** Clear the throttle state (test isolation / independent runs). */
+export function resetRateLimitTracking(): void {
+  lastRateLimitObservation = null;
+}
+
+/**
+ * Proactive throttle: if the last response said we are within
+ * RATE_LIMIT_SAFETY_BUFFER requests of a minute-window limit, sleep out the
+ * remainder of the reported reset before firing, instead of eating a real 429.
+ * A no-op (zero added latency) whenever remaining is comfortably above the
+ * buffer — the normal single-user case. Day-window exhaustion is deliberately
+ * NOT slept on: a capped wait can't refill a quota that resets in up to 24h,
+ * so we let the request go and the 429 fail-fast path surface
+ * WhoopRateLimitError instead. Each observation is consumed once — the next
+ * response re-observes.
+ */
+async function throttleIfNearLimit(): Promise<void> {
+  const obs = lastRateLimitObservation;
+  if (!obs || obs.window === 'day' || obs.remaining > RATE_LIMIT_SAFETY_BUFFER) {
+    return;
+  }
+  const elapsedMs = Date.now() - obs.observedAtMs;
+  const waitMs = Math.min(MAX_BACKOFF_MS, obs.resetSeconds * 1000 - elapsedMs);
+  lastRateLimitObservation = null;
+  if (waitMs > 0) {
+    await sleep(waitMs);
+  }
 }
 
 /** Clamp a caller-supplied limit into WHOOP's accepted 1..25 range. */
@@ -213,6 +436,10 @@ async function whoopRequest<T>(
   const { query, config = {} } = opts;
   const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
   const backoffBaseMs = config.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
+
+  // Proactive throttle FIRST (Phase 2.7): if the previous response said we are
+  // about to hit the minute quota, sleep out the reset before doing anything.
+  await throttleIfNearLimit();
 
   // Resolve the token ONCE per logical request. ensureFreshTokens' 5-minute skew
   // comfortably covers the retry window; aggregation re-resolves per page.
@@ -250,6 +477,15 @@ async function whoopRequest<T>(
       });
     }
 
+    // Observe the rate-limit headers off EVERY response — success and failure —
+    // so the next request's proactive throttle sees the freshest state.
+    const rateInfo = parseRateLimitHeaders(
+      res.headers.get('x-ratelimit-limit'),
+      res.headers.get('x-ratelimit-remaining'),
+      res.headers.get('x-ratelimit-reset'),
+    );
+    observeRateLimit(rateInfo);
+
     if (res.ok) {
       try {
         return (await res.json()) as T;
@@ -280,9 +516,31 @@ async function whoopRequest<T>(
       throw new WhoopAuthError({ endpoint: path, body });
     }
 
-    // Retry only 429 and 5xx; all other 4xx are caller errors and final.
-    const retryable = res.status === 429 || res.status >= 500;
-    if (retryable && attempt < maxRetries) {
+    // 429 (Phase 2.7): which window is exhausted decides everything. The DAY
+    // window resets in up to 24h, so capped 30s backoffs can't help — fail fast
+    // with ZERO retries rather than burning function time. Minute/unknown keep
+    // the retry-with-backoff behavior (a <=60s window CAN clear inside the
+    // budget), with Retry-After authoritative when present. When the budget is
+    // spent, the final throw is the typed WhoopRateLimitError either way.
+    if (res.status === 429) {
+      const window = rateInfo?.window ?? 'unknown';
+      if (window === 'day' || attempt >= maxRetries) {
+        throw new WhoopRateLimitError({
+          endpoint: path,
+          body,
+          window,
+          remaining: rateInfo?.remaining ?? null,
+          resetSeconds: rateInfo?.resetSeconds ?? null,
+        });
+      }
+      const retryAfter = parseRetryAfter(res.headers.get('retry-after'));
+      await sleep(retryAfter ?? backoffDelay(attempt, backoffBaseMs));
+      attempt += 1;
+      continue;
+    }
+
+    // Retry 5xx; all other 4xx are caller errors and final.
+    if (res.status >= 500 && attempt < maxRetries) {
       const retryAfter = parseRetryAfter(res.headers.get('retry-after'));
       await sleep(retryAfter ?? backoffDelay(attempt, backoffBaseMs));
       attempt += 1;

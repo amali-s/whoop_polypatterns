@@ -16,6 +16,7 @@
     "test:backoff": "node scripts/test-backoff.mjs",
     "test:callback": "node scripts/test-callback.mjs",
     "test:transforms": "node scripts/test-transforms.mjs",
+    "test:ratelimit": "node scripts/test-ratelimit.mjs",
     "test:whoop": "node --env-file=.env.local scripts/test-whoop.mjs",
     "sync:whoop": "node --env-file=.env.local scripts/sync-whoop.mjs",
     "build": "tsc -b && vite build",
