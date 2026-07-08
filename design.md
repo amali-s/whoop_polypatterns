@@ -168,31 +168,84 @@ upward (48/64) for airy dashboard breathing room.
 
 ## 2. Layout / grid
 
-> TODO: define the dashboard grid.
+> **Authored in Phase 3.2 (layout shell).** Values below are implemented in
+> `src/index.css` (`#root`) and `src/App.css` (shell section), built on the
+> §1 tokens.
 
-- Overall shell: header + main content (sidebar? TODO).
-- Grid: responsive columns (e.g. 12-col desktop → stack on mobile). TODO confirm.
-- Breakpoints: TODO (e.g. mobile < 640, tablet < 1024, desktop ≥ 1024).
-- Chart sizing: responsive SVG that fits its grid cell.
+### Shell structure
+
+```
+body (--color-bg)
+└── #root — full-bleed --gradient-bg, flex column, min-height 100svh
+    ├── <header class="app-header">   sticky glass bar
+    │     brand (h1) · status chip · Connect/Disconnect pill
+    └── <main class="dashboard">      centered column, max-width 1200px
+          ├── OAuth error banner (when present)
+          ├── auth/connection card (the pre-3.2 card, now shell content)
+          └── <section class="dashboard-grid"> — six chart-card slots
+```
+
+- **No sidebar in Phase 3 — deliberately deferred.** The dashboard is the
+  only destination until the Phase 5 questionnaire exists; a one-item nav is
+  dead chrome. **Reversible:** the shell is plain `header + main` with no
+  router; adding a sidebar later is one flex/grid wrapper around `<main>`
+  plus the nav component — nothing has to migrate.
+- **Header is sticky** (`position: sticky; top: 0`), not static: the
+  connection status and Connect/Disconnect action stay reachable while
+  scrolling the grid (a long single column on mobile), and the translucent
+  glass-over-content effect (`--color-surface-glass` + `backdrop-filter`
+  blur) is the Aero register. Cost is one compact row of viewport height.
+- Main column: `max-width: 1200px`, centered, `--space-5` padding
+  (`--space-7` bottom), `--space-5` vertical gap between banner / card /
+  grid. 1200px is a **layout constant, not a §1 token** (§1 is locked).
+
+### Dashboard grid & breakpoints
+
+CSS grid (`.dashboard-grid`), gap `--space-5`, equal-width `1fr` columns —
+six chart cards, so every breakpoint tiles evenly with no orphans:
+
+| Breakpoint          | Columns | Layout of the 6 cards |
+| ------------------- | ------- | --------------------- |
+| mobile `< 640px`    | 1       | 6 × 1 stack           |
+| tablet `640–1023px` | 2       | 3 rows × 2            |
+| desktop `≥ 1024px`  | 3       | 2 rows × 3            |
+
+At the 1200px column cap, 3 columns ≈ 368px per card — comfortable for the
+Phase 4 responsive SVGs. Breakpoints are **literal px in the media queries**
+(plain-CSS `@media` cannot read custom properties); this table is their
+source of truth.
+
+- Chart sizing: responsive SVG that fits its grid cell (Phase 4). The 3.2
+  placeholder body reserves `min-height: 180px` — a placeholder value, not a
+  chart-sizing decision.
 
 ---
 
 ## 3. Component inventory
 
-> TODO: confirm and expand.
+> Partially built in Phase 3.2 (layout items only); chart, questionnaire,
+> and state components remain TODO.
 
-- App shell / layout
-- Header / nav
-- Auth: "Connect WHOOP" button, connected state
-- Dashboard grid container
-- Chart card (title, subtitle, the SVG chart, optional legend)
-- Chart components:
+- App shell / layout — **✅ built (3.2)**: `#root` gradient shell, sticky
+  glass header, centered main column (§2).
+- Header / nav — **✅ built (3.2)**: brand + status chip +
+  Connect/Disconnect pill, driven by the same connection state as the auth
+  card. **No sidebar/nav** — deferred until Phase 5 adds a second page (§2).
+- Auth: "Connect WHOOP" button, connected state — **pre-existing, now shell
+  content**; still on legacy (pre-§1) tokens — restyle is task 3.3.
+- Dashboard grid container — **✅ built (3.2)**: `.dashboard-grid`,
+  breakpoints/columns per §2, currently holding six placeholder chart cards
+  (title + kind + "chart coming soon" body).
+- Chart card (title, subtitle, the SVG chart, optional legend) —
+  **placeholder only (3.2)**; real ChartContainer with loading/empty/error
+  states is task 3.3. **TODO**
+- Chart components: **TODO (Phase 4)**
   - StackedBarChart
   - ComboChart (×2 — bar + line)
   - DotMatrixChart (×3)
-- Questionnaire form + fields
-- Loading / empty / error states
-- Tooltip (shared across charts)
+- Questionnaire form + fields — **TODO (Phase 5)**
+- Loading / empty / error states — **TODO (task 3.3)**
+- Tooltip (shared across charts) — **TODO (Phase 4)**
 
 ---
 

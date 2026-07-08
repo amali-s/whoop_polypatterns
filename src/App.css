@@ -1,21 +1,191 @@
-#center {
+/* ==============================================================
+ * Phase 3.2 — Layout shell (design.md §2)
+ * Sticky glass header + centered main column + responsive chart
+ * grid. Uses the Phase 3.1 Aero tokens; the auth card below still
+ * wears its legacy styling until the 3.3 component pass.
+ * ============================================================== */
+
+/* Sticky (not static): the connection status + Connect/Disconnect
+ * action stay reachable while scrolling the chart grid, and the
+ * translucent glass-over-content look is the Aero register. */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface-glass);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  backdrop-filter: blur(14px) saturate(1.4);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-inset-gloss);
+}
+
+.brand {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  letter-spacing: normal;
+  color: var(--color-text);
+}
+
+.header-session {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-inset-gloss);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-muted);
+}
+
+.status-connected .status-dot {
+  background: var(--color-positive);
+}
+.status-waking .status-dot {
+  background: var(--color-warning);
+}
+.status-disconnected .status-dot {
+  background: var(--color-negative);
+}
+
+/* Compact Aero pill for the header Connect/Disconnect action. */
+.btn-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-inset-gloss);
+  color: var(--color-accent-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 0.2s;
+
+  &:hover {
+    border-color: var(--color-accent);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* Main column. Max-width is a layout constant (documented in
+ * design.md §2), not a §1 token — §1 is locked. */
+.dashboard {
+  flex: 1;
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  box-sizing: border-box;
+  padding: var(--space-5) var(--space-5) var(--space-7);
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-  padding: 32px 20px;
-  box-sizing: border-box;
+  gap: var(--space-5);
 }
+
+/* Responsive chart grid — breakpoints per design.md §2. Plain-CSS
+ * media queries can't read custom properties, so the px values are
+ * literal here; design.md §2 is their source of truth. */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-5);
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Placeholder chart card (task 3.2). Real ChartContainer with
+ * loading/empty/error states is task 3.3. */
+.chart-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background: var(--surface-gloss), var(--color-surface);
+  box-shadow: var(--shadow-card), var(--shadow-inset-gloss);
+  text-align: left;
+}
+
+.chart-card h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.chart-card-kind {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
+}
+
+.chart-card-placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 180px; /* placeholder only — Phase 4 charts size responsively */
+  margin-top: var(--space-2);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-glass);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+/* --- Auth card (pre-3.2 markup, legacy tokens until task 3.3) --- */
 
 .card {
   display: flex;
   flex-direction: column;
   align-items: center;
+  text-align: center; /* was inherited from the old centered #root */
   gap: 20px;
   width: 100%;
   max-width: 420px;
+  margin-inline: auto;
+  box-sizing: border-box;
   padding: 40px 32px;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -23,7 +193,7 @@
   box-shadow: var(--shadow);
 }
 
-.card h1 {
+.card h2 {
   font-size: 32px;
   letter-spacing: -0.96px;
   margin: 0;
@@ -132,6 +302,8 @@
   gap: 12px;
   width: 100%;
   max-width: 600px;
+  margin-inline: auto;
+  box-sizing: border-box;
   padding: 14px 16px;
   border: 1px solid var(--accent-border);
   border-radius: 10px;

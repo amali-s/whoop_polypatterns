@@ -1,5 +1,60 @@
 # Project state
 
+## Roadmap status (Phase 3.2 — layout shell) — ✅ COMPLETE (verified locally in the dev server) (2026-07-07)
+
+**What's done**
+
+- **App shell** (`src/App.tsx` + `src/App.css` + `src/index.css`): sticky
+  glass header (brand h1 · connection-status chip · Connect/Disconnect pill)
+  over a centered main column (max-width 1200px) holding the pre-existing
+  auth card and a new responsive `.dashboard-grid` with six placeholder
+  chart cards (title + kind + "Chart coming soon" body). Plain CSS on the
+  Phase 3.1 tokens; no Tailwind/CSS-in-JS; §1 tokens untouched.
+- **Auth logic untouched**: `checkSessionWithRetry`, all four
+  ConnectionStates, and the OAuth `whoop_error` banner are byte-for-byte the
+  same logic — only the JSX around them changed. Markup deltas: the card's
+  `h1` became `h2 "Connection"` (the header brand is now the page h1), and
+  the connected card's Disconnect link MOVED to the header (one action, not
+  two); the disconnected card keeps its primary Connect CTA and the header
+  shows a compact one as well — both are the same `/api/auth` navigation
+  driven by the same state.
+- **Decisions (flagged, reversible)**: (a) **no sidebar/nav** — dashboard is
+  the only destination until Phase 5; adding one later is a wrapper around
+  `<main>`, nothing migrates (no router exists); (b) **sticky header** —
+  status/action stay reachable while scrolling the grid; (c) **breakpoints**
+  <640px → 1 col, 640–1023 → 2 cols, ≥1024 → 3 cols (six cards tile evenly
+  at every step). All documented in design.md §2 (filled in from TODO); §3
+  updated ONLY for the layout rows — chart/questionnaire/state rows still
+  TODO.
+- **Legacy dark-mode override removed** (`src/index.css`): the scaffold's
+  `prefers-color-scheme: dark` block made the auth card dark-on-light inside
+  the always-light Aero shell (caught in a dark-mode browser during
+  verification). §1's confirmed direction is a light theme; `color-scheme`
+  is now `light`. Dark mode returns properly (on §1 tokens) in Phase 3.5 if
+  wanted.
+- Verified on this machine: `npm run build` (frontend tsc + vite),
+  `npm run typecheck:api`, `npm run lint`, `npm run format:check` all pass;
+  dev server rendered and checked in the preview browser at 1280/685/375px
+  (3/2/1 columns confirmed via computed `grid-template-columns`; sticky
+  header confirmed while scrolled; loading → waking → disconnected states
+  all seen live — under plain `vite dev` there is no `/api`, so the retry
+  loop runs its budget and lands on the honest unreachable hint, which is
+  the expected dev-only behavior).
+
+**What's still open**
+
+- Connected-state rendering was only typechecked, not seen live here (plain
+  `vite dev` has no `/api/session`); the connected branch's logic is
+  unchanged, only wrapped. Worth one glance on prod after deploy.
+- The auth card still wears its legacy (pre-§1) purple-accent styling —
+  migrating it to the Aero tokens is task 3.3 (component library), on
+  purpose.
+
+**What needs human action**
+
+- Commit + push (`main` auto-deploys Vercel prod) — not committed by this
+  session.
+
 > **Note (2026-07-03):** this file was referenced as already existing with
 > Phase 2.2 / 2.3 entries, but it was not found in the repo, its git history,
 > or the working tree in this sandbox — so it was created fresh with the 2.4
