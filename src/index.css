@@ -1,4 +1,106 @@
 :root {
+  /* ==============================================================
+   * Phase 3.1 — Design tokens (Neo Frutiger Aero)
+   * Light, airy, glossy-glass aesthetic: sky-blue / nature-tech
+   * tones, soft gradients, high-gloss highlights, generous
+   * rounding. These are the canonical design tokens documented in
+   * design.md §1.
+   *
+   * The legacy app-shell tokens further down (--text / --bg /
+   * --accent / …) predate 3.1 and still drive App.css. Migrating
+   * those components to consume the tokens below is Phase 3.2/3.3;
+   * dark mode is Phase 3.5. Left untouched here on purpose so this
+   * run only *defines* tokens and rewires nothing.
+   * ============================================================== */
+
+  /* --- Base UI palette --- */
+  --color-bg: #e8f3fb; /* app background (airy sky-tinted) */
+  --color-surface: #ffffff; /* cards / panels (glossy white) */
+  --color-surface-glass: rgba(255, 255, 255, 0.6); /* frosted translucent panels */
+  --color-text: #0f2b3d; /* primary text (deep teal-navy) */
+  --color-muted: #5c7689; /* secondary text (blue-grey) */
+  --color-border: #cfe3f0; /* soft blue-tinted hairline */
+  --color-accent: #1e9fe3; /* primary accent (Aero azure) */
+  --color-accent-strong: #1580bd; /* accent hover / pressed */
+  --color-positive: #3aa657; /* good / above target (nature green) */
+  --color-negative: #e5484d; /* bad / below target (coral red) */
+  --color-warning: #f5a623; /* caution / attention (warm amber) */
+
+  /* --- Glossy / glass treatment ---
+   * Gloss is a *gradient* token, not a flat color: the Aero sheen
+   * is intrinsically directional (bright at top → fading down), so
+   * a single flat highlight can't reproduce it. Sharing ONE gradient
+   * token is precisely what keeps the sheen consistent across every
+   * surface — the inconsistency risk the brief flags comes from
+   * components hand-rolling their own gradients, which a shared token
+   * removes. Reversible: drop back to the flat --color-highlight if
+   * we ever ditch the sheen. */
+  --gradient-bg: linear-gradient(180deg, #f2fafe 0%, #dbeef9 100%);
+  --surface-gloss: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(255, 255, 255, 0.28) 42%,
+    rgba(255, 255, 255, 0.04) 100%
+  );
+  --color-highlight: rgba(255, 255, 255, 0.75); /* flat specular edge / inset */
+  --shadow-card: 0 8px 24px -8px rgba(9, 102, 148, 0.28), 0 2px 6px -2px rgba(9, 102, 148, 0.16);
+  --shadow-inset-gloss: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+
+  /* --- Chart / data-series palette (LOCKED — verbatim hex, do not
+   * approximate or tint. The semantic metric mapping is a PROPOSAL
+   * pending confirmation; see design.md §1 "Chart color mapping". */
+  --color-chart-1: #60e1f0; /* Light blue */
+  --color-chart-2: #875c00; /* Dark orange */
+  --color-chart-3: #ff4978; /* Bright magenta */
+  --color-chart-4: #d9d059; /* Pale mustard */
+  --color-chart-5: #096694; /* Dark blue */
+  --color-chart-6: #16d113; /* Lime green */
+  --color-chart-7: #902944; /* Dark magenta */
+
+  /* --- Typography ---
+   * Direction: rounded, humanist sans. Intended face 'Nunito Sans'
+   * (SIL OFL, self-hostable) is NOT bundled yet — licensing/import
+   * is a later run; until then the stack falls back to system
+   * humanist faces ('Segoe UI' first gives Windows the authentic
+   * Vista-era Aero feel for free). */
+  --font-sans:
+    'Nunito Sans', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Nunito', 'Nunito Sans', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'Cascadia Code', Consolas, monospace;
+
+  /* size scale (px — matches this file's existing px convention) */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 20px;
+  --text-xl: 24px;
+  --text-2xl: 32px;
+  --text-3xl: 40px; /* hero metric numerals */
+
+  /* weights */
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* --- Spacing scale (px) --- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* --- Radii (generous — glossy 'bubble' surfaces) --- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px; /* default card radius */
+  --radius-xl: 24px; /* large / hero cards */
+  --radius-pill: 999px; /* buttons, status chips, toggles */
+
+  /* ---- legacy app-shell tokens (pre-3.1; drive App.css until 3.2/3.3) ---- */
   --text: #6b6375;
   --text-h: #08060d;
   --bg: #fff;
