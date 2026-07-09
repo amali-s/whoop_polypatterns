@@ -215,6 +215,18 @@ body (--color-bg)
   (`--space-7` bottom), `--space-5` vertical gap between banner / card /
   grid. 1200px is a **layout constant, not a §1 token** (§1 is locked).
 
+### Layout gap — Phase 4 charts without a bento slot (confirmed 2026-07-09)
+
+The confirmed Figma bento grid (9 tiles below) only has slots for 2 of the 6
+Phase 4 chart types (HRV, RHR combo charts). The stacked-bar (sleep stages)
+chart and all 3 dot-matrix charts (recovery calendar, sleep performance,
+strain matrix) predate this decision and have no tile in the Figma mockup.
+**Decision:** leave the existing 9-tile `.bento-grid` untouched; append new
+full-width rows **below** it for these 4 charts, each in its own
+`ChartContainer` at the dashboard's 1200px column width (not squeezed into
+the 640px-capped bento cluster). Order: stacked bar (sleep stages) → recovery
+calendar → sleep performance → strain matrix.
+
 ### Dashboard grid & breakpoints — bento (revised)
 
 **Superseded the earlier uniform 6-card `1fr` grid.** The confirmed Figma
@@ -315,10 +327,14 @@ specifies a desktop/tablet variant).
 - Daily journal tile — **explicit stub, now on ChartContainer (3.3)**: same
   visible "Stub — Phase 5" label (subtitle slot) and static rows; no real
   journal UI until Phase 5.
-- Chart components: **TODO (Phase 4)**
-  - StackedBarChart
-  - ComboChart (×2 — bar + line)
-  - DotMatrixChart (×3)
+- Chart components: **Phase 4, in progress**
+  - StackedBarChart — **✅ built (4.1)**: `src/components/charts/StackedBarChart.tsx`,
+    generic (typed keys over any nullable-numeric fields, reusable for e.g.
+    strain contributors); renders sleep stages below the bento grid, fed by
+    `/api/sleep-stages` via `src/hooks/useSleepStages.ts`. Stage color
+    mapping: §4 proposal, pending confirmation.
+  - ComboChart (×2 — bar + line) — **TODO (4.2/4.3)**
+  - DotMatrixChart (×3) — **TODO (4.4–4.6)**
 - Questionnaire form + fields — **TODO (Phase 5)** (will consume the 3.3
   form primitives)
 - Tooltip (shared across charts) — **TODO (Phase 4)**
@@ -331,18 +347,53 @@ specifies a desktop/tablet variant).
 > kicking off Phase 4). Chart 6 uses the strain-matrix option, not the
 > questionnaire-correlation option, since Phase 5 does not exist yet.
 
-| #   | Chart type        | Confirmed mapping                                                                                  |
-| --- | ----------------- | ---------------------------------------------------------------------------------------------------- |
-| 1   | Stacked bar       | Sleep stages per night (Awake / Light / Deep / REM → total sleep)                                     |
-| 2   | Combo (line+area) | Recovery % (line) over Day Strain (area) — readiness vs. load                                         |
-| 3   | Combo (line+area) | HRV (line) over the confirmed ideal-band (area) — see methodology below                               |
-| 4   | Dot-matrix        | Recovery calendar — one dot/day, color = recovery zone (red/yellow/green)                              |
-| 5   | Dot-matrix        | Sleep performance — dot size/color = % of sleep need met                                              |
+| #   | Chart type        | Confirmed mapping                                                                                                            |
+| --- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Stacked bar       | Sleep stages per night (Awake / Light / Deep / REM → total sleep)                                                            |
+| 2   | Combo (line+area) | Recovery % (line) over Day Strain (area) — readiness vs. load                                                                |
+| 3   | Combo (line+area) | HRV (line) over the confirmed ideal-band (area) — see methodology below                                                      |
+| 4   | Dot-matrix        | Recovery calendar — one dot/day, color = recovery zone (red/yellow/green)                                                    |
+| 5   | Dot-matrix        | Sleep performance — dot size/color = % of sleep need met                                                                     |
 | 6   | Dot-matrix        | Strain matrix (one cell/day, color/intensity = day strain). Questionnaire-correlation variant revisited once Phase 5 exists. |
 
 Candidate WHOOP v2 metrics to draw from: recovery %, HRV, resting heart rate,
 day strain, sleep performance, sleep duration/stages, respiratory rate — plus
 questionnaire self-reports. Confirm exact mapping (and time window) per chart.
+
+### Sleep-stage color mapping (chart 4.1) — **PROPOSAL (2026-07-09), pending confirmation**
+
+§1 locks the seven chart hexes and pre-assigns `--color-chart-1` to "Sleep"
+generically; it does NOT lock a 4-way mapping for individual sleep stages.
+This subsection locks one in (pending your confirmation). **Arithmetic
+correction to the task brief:** with six of the seven hues already
+load-bearing on the same dashboard view (chart-2 calories, chart-3 skin
+temp/period, chart-4 HRV/RHR ideal band, chart-5 strain, chart-6 recovery,
+chart-7 HRV/RHR actual), four distinct stage hues require reusing **three**
+reserved tokens, not one — only chart-1 is free.
+
+| Stage (stack, bottom→top) | Token             | Hue          | Reuse conflict & why it's the least bad                                                                                      |
+| ------------------------- | ----------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| Deep (bottom)             | `--color-chart-5` | Dark blue    | Strain donut/matrix. Deepest sleep = darkest blue is the natural read; strain never co-occurs in a sleep chart.              |
+| REM                       | `--color-chart-2` | Dark orange  | Calories — currently a **text-only stat tile** with no colored mark at all, so this is the quietest reuse on the whole view. |
+| Light                     | `--color-chart-1` | Light blue   | None — the one free token, and already the designated "Sleep" hue. Lightest blue = lightest sleep.                           |
+| Awake (top)               | `--color-chart-4` | Pale mustard | HRV/RHR ideal band — a muted low-salience background area, geometrically distant from this chart's rows.                     |
+
+Rejected reuses: `--color-chart-6` (lime = Recovery's signature semantic
+color, and the recovery-calendar dot matrix 4.4 will sit directly below this
+chart — worst possible confusion); `--color-chart-3` (bright magenta draws
+both the skin-temp sparkline and the period meter on the same view, high
+salience); `--color-chart-7` (drawn as the actual line in TWO charts, HRV and
+RHR).
+
+Contrast consequence (§5.2 rule 4): chart-1 and chart-4 fail the 3:1
+non-text threshold on the white card, so **every bar segment wears a 1px
+`--color-muted` outline** (`.chart-bar-segment` in charts.css) regardless of
+fill — same precedent as the legend swatches. Stage hues are never used as
+text (standing §5 rule); values are labeled in the tooltip/data table in
+`--color-text`.
+
+Stack order is deep → REM → light → awake (bottom→top), so bar depth reads
+as sleep depth with wake time on top.
 
 ### HRV / RHR "ideal" band — confirmed methodology (feeds Phase 2.6)
 

@@ -132,9 +132,8 @@ WHOOP v2 resources you'll likely use: **Cycles** (physiological cycles / strain)
 
 General D3+React pattern: let **React own the DOM / SVG container and state**, let **D3 own scales, axes, shapes, and transitions**. Build one solid reusable scaffold (responsive SVG, axes, tooltip, legend) and reuse it.
 
-- [ ] **4.0 Charting foundation** — responsive `<svg>` wrapper hook, shared scales/axes helpers, tooltip + legend components, animation/transition utility.
-
-- [ ] **4.1 Stacked bar chart** — suggested mapping: **sleep stages per night** (Awake / Light / Deep / REM stacked to total sleep), or strain contributors per day.
+- [x] **4.0 Charting foundation** — responsive `<svg>` wrapper hook, shared scales/axes helpers, tooltip + legend components, animation/transition utility. **Done (2026-07-09, commit 7281946):** `src/components/charts/` — see PROJECT-STATE.md. (Checkbox ticked retroactively with 4.1; the work itself predates it.)
+- [x] **4.1 Stacked bar chart** — suggested mapping: **sleep stages per night** (Awake / Light / Deep / REM stacked to total sleep), or strain contributors per day. **Done (2026-07-09):** generic `StackedBarChart` (`src/components/charts/StackedBarChart.tsx`, reusable for e.g. strain contributors later) rendering sleep stages below the bento grid, fed by the new `GET /api/sleep-stages?days=<n>` endpoint (first real caller of the 2.6 transforms against DB rows) via `src/hooks/useSleepStages.ts`; ChartContainer status driven from fetch state (this tile's 4.8 wiring). Built to the §5.2 contract (data-describing `<title>`/`<desc>`, sr-only data table from the same series, hover/focus tooltip parity + Escape, muted segment outlines, reduced-motion-gated entrance, bordered-swatch legend). Null nights render as visible gaps, never zero bars. Stage color mapping is a PROPOSAL in design.md §4, pending confirmation. NOT live-verified against real Supabase rows from this sandbox — see PROJECT-STATE.md.
 - [ ] **4.2 Combo chart #1 (line + area)** — suggested: **Recovery % (line) over Day Strain (area)** to see readiness vs. load.
 - [ ] **4.3 Combo chart #2 (line + area)** — suggested: **HRV (line) over a rolling baseline band (area)**, or RHR line over sleep-debt area.
 - [ ] **4.4 Dot matrix #1** — suggested: **recovery calendar** (one dot per day, color = recovery zone red/yellow/green).

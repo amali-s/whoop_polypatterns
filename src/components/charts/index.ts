@@ -13,4 +13,6 @@ export type { LegendEntry } from './Legend';
 export { ChartSvg } from './ChartSvg';
 export { ChartDataTable } from './ChartDataTable';
 export type { ChartDataColumn } from './ChartDataTable';
+export { StackedBarChart } from './StackedBarChart';
+export type { StackedBarChartProps, StackedBarSeriesKey } from './StackedBarChart';
 import './charts.css';

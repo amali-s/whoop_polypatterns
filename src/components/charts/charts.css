@@ -55,6 +55,15 @@
   opacity: 0.5;
 }
 
+/* Stacked-bar segments: some LOCKED chart hues fail the 3:1 non-text
+ * threshold against the white card (design.md §5.2 rule 4), so every
+ * segment wears the same muted hairline as the legend swatches —
+ * regardless of which hue fills it. */
+.chart-bar-segment {
+  stroke: var(--color-muted);
+  stroke-width: 1;
+}
+
 /* Focusable chart marks (design.md §5.2 rule 3 — roving tabindex points). */
 .chart-mark {
   cursor: pointer;

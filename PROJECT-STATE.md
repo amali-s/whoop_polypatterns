@@ -1,5 +1,74 @@
 # Project state
 
+## Roadmap status (Task 4.1 — stacked bar chart, sleep stages) — ✅ COMPLETE (sandbox-verified; not run against live Supabase) (2026-07-09)
+
+**What's done**
+
+- **`api/sleep-stages.ts`** (new endpoint, structured on session.ts):
+  `GET /api/sleep-stages?days=<n>` (default 30, clamped 1–90). Auth = the
+  `whoop_session` cookie via `decodeSession`; missing/invalid →
+  `401 { error: 'Not authenticated.' }`. Queries `whoop_sleep` for exactly the
+  `SleepMetricRow` columns (so DB rows pass into `buildSleepStageBreakdown`
+  with no mapping layer — the transforms' first real caller), day-ascending
+  over the last n days (UTC window). Returns `200 { points }`;
+  `DatabaseUnavailableError` → `503 { waking: true }` + `Retry-After` (same
+  classification as session.ts); anything else logs server-side and returns a
+  generic `500 { error: 'Failed to load sleep stages.' }` — no Supabase
+  internals leak.
+- **`src/components/charts/StackedBarChart.tsx`** — GENERIC stacked bar (typed
+  `keys` constrained to T's nullable-numeric fields; reusable later for e.g.
+  strain contributors). d3-shape `stack()` for layout; `scaleBand` (day) +
+  `scaleLinear` (minutes) + shared `Axis`/`ChartSvg`/`Legend`/`Tooltip`/
+  `ChartDataTable`. §5.2 contract: data-describing `<title>`/`<desc>` (real
+  date range, totals range, gap count); sr-only table rendered from the SAME
+  `data` prop (one row/night, one column/stage + total, nulls read "no
+  data"); every segment `.chart-mark` with `tabIndex={0}`, identical tooltip
+  on mouseenter/focus, Escape dismisses; entrance fade gated on
+  `chartTransitionDuration` (0 under reduced motion); legend from the `keys`
+  prop. **Null discipline:** a night with `totalMinutes === null` keeps its
+  x-axis band slot but draws NO rects — a visible gap, never a zero-height
+  stack. Every segment wears a 1px `--color-muted` stroke
+  (`.chart-bar-segment`, charts.css) since chart-1/-4 fail 3:1 on white.
+- **`src/hooks/useSleepStages.ts`** — mount-time fetch with a cancellation
+  flag (session-check.ts discipline); states `loading | unauthenticated |
+error | ready`. Type-only import of `SleepStageBreakdownPoint` from
+  `api/_lib/transforms` (erased at build — nothing from /api enters the
+  bundle; the module is browser-safe by contract anyway).
+- **`src/App.tsx`** — `SleepStagesTile`: full-width ChartContainer BELOW the
+  closing `</section>` of `.bento-grid` at the dashboard's 1200px column
+  width (per the §2 "Layout gap" decision). `status` driven from fetch state:
+  401 → 'empty' with a "connect WHOOP" note (a disconnected dashboard isn't
+  an error), zero points → 'empty' with a "run a sync" note, non-OK/network →
+  'error', else 'ready' rendering StackedBarChart.
+- **Color mapping (design.md §4, PROPOSAL pending confirmation):** Deep =
+  chart-5 dark blue (bottom), REM = chart-2 dark orange, Light = chart-1
+  light blue, Awake = chart-4 pale mustard (top). NOTE the brief's arithmetic
+  was corrected: six of seven hues are already load-bearing on this view, so
+  THREE reserved tokens are reused (2/4/5), not one — reuses chosen for
+  lowest collision (calories tile is text-only today; the ideal band is a
+  muted background; strain never co-occurs in a sleep chart). Rejected:
+  chart-6 (Recovery's semantic green, and the 4.4 recovery calendar will sit
+  directly below), chart-3 (skin temp + period on the same view), chart-7
+  (actual line in two charts).
+- Verified in the sandbox: `npm run typecheck:api`, `npx tsc -b --force`,
+  `npx eslint .`, `npm run test:transforms`, `npx vite build`,
+  `npx prettier --check .` all clean.
+
+**What's still open / needs human action**
+
+- **NOT run against live Supabase/WHOOP** — this sandbox has no network path
+  to them. Verify manually: deploy (push `main`), open the dashboard while
+  connected, and confirm (a) the tile leaves 'loading' for 'ready' with real
+  bars, (b) an unscored/missing night shows a gap (not a zero bar), (c)
+  `GET /api/sleep-stages` returns points matching `npm run sync:whoop`'d rows
+  (first live proof of the 2.6 DTO ↔ DB-row compatibility), (d) the 401 →
+  "connect WHOOP" empty state in a logged-out browser.
+- **Confirm the §4 sleep-stage color mapping** (or redirect it) — flagged as
+  a proposal; App.tsx `SLEEP_STAGE_KEYS` is the single place to change.
+- Tooltip positioning assumes the SVG renders at its measured width (true
+  for the current full-width layout; revisit if a chart ever renders scaled).
+- Commit + push are yours (`main` auto-deploys Vercel prod).
+
 ## Roadmap status (Task 4.0 — charting foundation) — ✅ COMPLETE (2026-07-09)
 
 **Chart→metric mappings confirmed (2026-07-09):** user accepted the ROADMAP

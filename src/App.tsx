@@ -3,8 +3,11 @@ import './App.css';
 import { checkSessionWithRetry, type SessionStatus } from './session-check';
 import { Card } from './components/Card';
 import { Button } from './components/Button';
-import { ChartContainer } from './components/ChartContainer';
+import { ChartContainer, type ChartStatus } from './components/ChartContainer';
 import { LoadingState, ErrorState } from './components/states';
+import { StackedBarChart, type StackedBarSeriesKey } from './components/charts';
+import { useSleepStages } from './hooks/useSleepStages';
+import type { SleepStageBreakdownPoint } from '../api/_lib/transforms';
 
 // A WHOOP provider error forwarded by /api/callback via query params.
 interface OAuthError {
@@ -34,6 +37,58 @@ const STATUS_LABELS: Record<ConnectionState, string> = {
 // data + real chart rendering is Phase 4, which swaps the children for a D3
 // chart and drives ChartContainer's status from fetch state. Daily journal
 // has no data source yet (questionnaire is Phase 5) and is explicitly a stub.
+
+// Chart 4.1 — sleep-stage segment order (bottom-to-top: deepest at the bottom,
+// awake on top) and hue assignment. The mapping is a PROPOSAL documented in
+// design.md §4 ("Sleep-stage color mapping"), pending confirmation; the hues
+// themselves are the LOCKED §1 palette, used verbatim via their tokens.
+const SLEEP_STAGE_KEYS: StackedBarSeriesKey<SleepStageBreakdownPoint>[] = [
+  { key: 'deepMinutes', label: 'Deep', color: 'var(--color-chart-5)' },
+  { key: 'remMinutes', label: 'REM', color: 'var(--color-chart-2)' },
+  { key: 'lightMinutes', label: 'Light', color: 'var(--color-chart-1)' },
+  { key: 'awakeMinutes', label: 'Awake', color: 'var(--color-chart-4)' },
+];
+
+const SLEEP_STAGE_DAYS = 30;
+
+/**
+ * Full-width stacked-bar row below the bento grid (design.md §2 "Layout gap"
+ * decision: Phase 4 charts without a bento slot get their own rows at the
+ * dashboard's 1200px column width). Drives ChartContainer's status from the
+ * fetch state (4.8 wiring for this tile).
+ */
+function SleepStagesTile() {
+  const stages = useSleepStages(SLEEP_STAGE_DAYS);
+  const points = stages.status === 'ready' ? stages.points : [];
+  const status: ChartStatus =
+    stages.status === 'unauthenticated' || (stages.status === 'ready' && points.length === 0)
+      ? 'empty'
+      : stages.status;
+  return (
+    <ChartContainer
+      title="Sleep stages per night"
+      subtitle={`Awake, light, deep and REM minutes — last ${SLEEP_STAGE_DAYS} nights`}
+      status={status}
+      loadingLabel="Loading your sleep stages…"
+      emptyMessage={
+        stages.status === 'unauthenticated'
+          ? 'Connect your WHOOP account to see your sleep stages.'
+          : `No sleep data in the last ${SLEEP_STAGE_DAYS} nights — run a sync, then refresh.`
+      }
+      errorMessage="Couldn’t load sleep stages. Refresh to try again."
+    >
+      <StackedBarChart
+        data={points}
+        keys={SLEEP_STAGE_KEYS}
+        day={(p) => p.day}
+        total={(p) => p.totalMinutes}
+        title="Sleep stages per night"
+        tableCaption={`Sleep stage minutes per night, last ${SLEEP_STAGE_DAYS} nights`}
+        unit="minutes"
+      />
+    </ChartContainer>
+  );
+}
 
 /** Read whoop_error[...] params that /api/callback may have appended to the URL. */
 function readOAuthError(): OAuthError | null {
@@ -315,6 +370,8 @@ function App() {
             />
           </ChartContainer>
         </section>
+
+        <SleepStagesTile />
       </main>
     </>
   );
