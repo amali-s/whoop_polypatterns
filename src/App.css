@@ -14,9 +14,14 @@
   top: 0;
   z-index: 10;
   display: flex;
+  /* Task 3.4: both rows may wrap — at 375px the disconnected state's
+   * chip + Connect pill are wider than the viewport (the chip and pill
+   * are nowrap by design), which forced horizontal scroll. Wrapping the
+   * session row under the brand keeps everything on-screen. */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-2) var(--space-4);
   padding: var(--space-3) var(--space-5);
   background: var(--color-surface-glass);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
@@ -36,8 +41,9 @@
 
 .header-session {
   display: flex;
+  flex-wrap: wrap; /* Task 3.4: see .app-header */
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-2) var(--space-3);
 }
 
 .status-chip {
@@ -174,7 +180,9 @@
 
 /* --- Daily journal (stub, Phase 5 has no data source yet) --- */
 .journal-stub {
-  color: var(--color-warning);
+  /* Task 3.4: --color-warning is 2.03:1 on the card surface — fills/dots
+   * only; warning-toned TEXT uses the darker AA-passing companion token. */
+  color: var(--color-warning-text);
 }
 
 .journal-stub-list {
@@ -253,9 +261,15 @@
 }
 
 .legend-swatch {
+  box-sizing: border-box;
   width: 10px;
   height: 10px;
   border-radius: 2px;
+  /* Task 3.4: the LOCKED chart palette can't be tinted, and some hues
+   * (chart-4 pale mustard, 1.60:1) can't meet the 3:1 non-text boundary
+   * against the white card on their own — so every swatch gets a muted
+   * hairline that delineates it regardless of fill. */
+  border: 1px solid var(--color-muted);
 }
 
 /* Chart-7 / chart-4 are the confirmed shared tokens for HRV+RHR

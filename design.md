@@ -20,19 +20,33 @@
 
 ### Colors — base UI palette
 
-| Token                   | Value                   | Usage                                |
-| ----------------------- | ----------------------- | ------------------------------------ |
-| `--color-bg`            | `#e8f3fb`               | App background (airy sky-tinted)     |
-| `--color-surface`       | `#ffffff`               | Cards / panels (glossy white)        |
-| `--color-surface-glass` | `rgba(255,255,255,0.6)` | Frosted / translucent panels         |
-| `--color-text`          | `#0f2b3d`               | Primary text (deep teal-navy)        |
-| `--color-muted`         | `#5c7689`               | Secondary text (blue-grey)           |
-| `--color-border`        | `#cfe3f0`               | Soft blue-tinted hairline / dividers |
-| `--color-accent`        | `#1e9fe3`               | Primary accent (Aero azure)          |
-| `--color-accent-strong` | `#1580bd`               | Accent hover / pressed               |
-| `--color-positive`      | `#3aa657`               | Good / above target (nature green)   |
-| `--color-negative`      | `#e5484d`               | Bad / below target (coral red)       |
-| `--color-warning`       | `#f5a623`               | Caution / attention (warm amber)     |
+> **Task 3.4 (2026-07-08) — WCAG AA contrast deltas, flagged explicitly.**
+> A computed-ratio audit (WCAG 2.x relative luminance, not eyeballed) found
+> five failures in the original 3.1 values; four tokens were darkened and one
+> companion token added. Original values and their failing ratios:
+> `--color-muted` `#5c7689` (4.23:1 on `--color-bg`, needs 4.5), `--color-accent`
+> `#1e9fe3` (2.95:1 as white-label button fill / focus outline, needs 4.5 / 3),
+> `--color-accent-strong` `#1580bd` (4.33:1 white label + secondary label),
+> `--color-negative` `#e5484d` (3.91:1 as error text on surface).
+> `--color-warning` `#f5a623` (2.03:1) is **unchanged** but demoted to
+> fills/dots only — warning-toned _text_ uses the new `--color-warning-text`.
+> The LOCKED chart palette is untouched. All deltas are darkenings within the
+> same hue, reversible if a different remedy is preferred.
+
+| Token                   | Value                   | Usage                                                                                |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
+| `--color-bg`            | `#e8f3fb`               | App background (airy sky-tinted)                                                     |
+| `--color-surface`       | `#ffffff`               | Cards / panels (glossy white)                                                        |
+| `--color-surface-glass` | `rgba(255,255,255,0.6)` | Frosted / translucent panels                                                         |
+| `--color-text`          | `#0f2b3d`               | Primary text (deep teal-navy) — 13.0:1 on bg                                         |
+| `--color-muted`         | `#546d80`               | Secondary text (blue-grey) — 4.81:1 on bg, 5.42:1 on surface                         |
+| `--color-border`        | `#cfe3f0`               | Soft blue-tinted hairline / dividers (decorative — 1.32:1, never a control boundary) |
+| `--color-accent`        | `#1173a6`               | Primary accent (Aero azure) — 5.22:1 white label, ≥4.6:1 outline on every shell bg   |
+| `--color-accent-strong` | `#0f6494`               | Accent hover / pressed — 6.42:1 white label & as text on surface                     |
+| `--color-positive`      | `#3aa657`               | Good / above target (nature green) — 3.10:1, fills/large only                        |
+| `--color-negative`      | `#c93848`               | Bad / below target (coral red) — 5.07:1 surface, 4.50:1 bg                           |
+| `--color-warning`       | `#f5a623`               | Caution / attention (warm amber) — **fills/dots only, 2.03:1**                       |
+| `--color-warning-text`  | `#946200`               | Warning-toned text — 5.24:1 surface, 4.65:1 bg (added 3.4)                           |
 
 ### Colors — glossy / glass treatment
 
@@ -391,9 +405,93 @@ coefficients) rather than the two-anchor-point interpolation used here.
 
 ## 5. Interaction & accessibility
 
-> TODO.
+> **Authored in Task 3.4 (2026-07-08).** Two parts: what the current shell
+> already guarantees (audited + fixed), and the **contract every Phase 4
+> chart component must follow** — documentation Phase 4 builds against.
 
-- Tooltips on hover/focus.
-- Keyboard navigation for interactive charts.
-- `aria-label` / `<title>` on SVGs; sufficient color contrast.
-- Respect `prefers-reduced-motion` for D3 transitions.
+### 5.1 Current shell — audited state (Task 3.4)
+
+- **Breakpoints:** verified at 375 / 768 / 1024 / 1280px — no horizontal
+  overflow, sticky header never clips content (`.app-header` and
+  `.header-session` wrap at narrow widths; before 3.4 the disconnected
+  state's chip + Connect pill forced horizontal scroll at 375px).
+- **Contrast:** every text/background pairing computed against WCAG AA —
+  see the ratio table + flagged token deltas in §1. Standing rules:
+  `--color-warning` and the LOCKED chart hues `--color-chart-1/-4/-6`
+  (and `--color-positive` at small sizes) must **never color text**;
+  `--color-border` is decorative and must never be the only boundary of a
+  control (form controls use `--color-muted` borders, 5.42:1).
+- **Tap targets:** all buttons/links get a ≥44×44px hit area via the
+  `.ui-btn::after` extension (visual pill unchanged); form controls have
+  `min-height: 44px`. _Known exception:_ the legacy OAuth banner's dismiss
+  ✕ (~28×24px) — the banner is out of scope until next touched (§3).
+- **Keyboard:** all interactive elements are native `<a>`/`<button>`, no
+  custom `tabIndex` anywhere, focus order = DOM order = visual order; no
+  traps. Focus indicator: `2px solid var(--color-accent)` outline with
+  offset — #1173a6 is ≥4.6:1 against every shell background (needs 3:1).
+- **Reduced motion:** `@media (prefers-reduced-motion: reduce)` in
+  `components.css` stops the `ui-spin` animation (spinner degrades to a
+  static ring; every `LoadingState` also carries a text label) and snaps
+  the button color transition.
+- **Placeholder semantics:** each `ChartContainer` names its `<article>`
+  via `useId`-linked `aria-labelledby`; placeholder visuals are
+  `role="img"` with honest "no data yet" labels; every numeric placeholder
+  ("—:—hrs", "— cal") is real text, not an image. The journal stub's
+  sample rows are `aria-hidden` **deliberately** — they are fake data, and
+  the adjacent (exposed) note tells screen-reader users there's no data
+  source yet.
+
+### 5.2 Phase 4 chart accessibility contract (build against this)
+
+Every chart component (StackedBarChart, ComboChart, DotMatrixChart, and
+the 4.0 scaffold) MUST ship with all of the following:
+
+1. **Accessible name + summary on the SVG.** The `<svg>` gets
+   `role="img"` plus either `aria-labelledby` pointing at an SVG
+   `<title>` (name) and `<desc>` (one-sentence summary of what the chart
+   currently shows, e.g. "Recovery percent by day, June 1–30, ranging
+   42–98%"), or an equivalent `aria-label`. The summary must describe the
+   _data_, not the chart type. When the tile is in a loading/empty/error
+   state, ChartContainer's state components already carry the semantics —
+   don't double-announce.
+2. **Text/table fallback of the underlying data.** A visually-hidden (but
+   screen-reader-exposed) `<table>` (or `<dl>` for single-series) of the
+   series the chart renders, adjacent to the SVG, marked up so the SVG
+   graphic itself can stay `aria-hidden` from the row-by-row reading flow
+   if that avoids duplication. The fallback renders from the SAME
+   transformed series the D3 code draws from (Phase 2.6 outputs) — never
+   a re-fetch or re-derivation. Gaps stay gaps: a null day reads "no
+   data", never 0 (the Phase 2 null discipline extends to what screen
+   readers hear).
+3. **Keyboard parity for hoverable points.** Any datum with a hover
+   tooltip must be focusable (`tabindex="0"` on the point/mark, roving
+   tabindex within a chart so one Tab stop enters the chart and
+   arrow keys move between points) and show the SAME tooltip on focus as
+   on hover (`focus`/`blur` mirror `mouseenter`/`mouseleave`). Escape
+   dismisses. Tooltip content must itself be real text meeting AA
+   contrast, and must not be the only place a value exists (the fallback
+   table carries everything).
+4. **Color is never the only encoding.** Series must be distinguishable
+   by position/shape/pattern or direct labeling in addition to hue — the
+   LOCKED palette (§1) contains hues that fail 3:1 against the white card
+   (chart-1 light blue 1.55:1, chart-4 pale mustard 1.60:1, chart-6 lime
+   1.07–2.07:1). Non-text marks in those hues get a ≥3:1 outline (the
+   3.4 precedent: legend swatches wear a 1px `--color-muted` border) or a
+   direct text label. Chart hues are NEVER used as text color — only
+   chart-2, chart-5, chart-7 pass 4.5:1, and relying on that invites
+   palette drift; label in `--color-text`/`--color-muted` instead.
+5. **Reduced motion governs D3 transitions.** Gate every
+   `selection.transition()` / animated entrance on
+   `window.matchMedia('(prefers-reduced-motion: reduce)')` — when reduced,
+   render the final state immediately (`.duration(0)` or skip the
+   transition entirely). Live-update animations (e.g. a point pulsing)
+   must have a static equivalent. This mirrors the CSS rule already in
+   `components.css`.
+6. **Legends** follow the 3.4 pattern: swatch `aria-hidden` + real-text
+   label, swatches bordered per rule 4. Interactive legend toggles (4.7)
+   are real `<button>`s with `aria-pressed`.
+
+- Tooltips on hover/focus — pattern locked by rule 3.
+- Keyboard navigation for interactive charts — pattern locked by rule 3.
+- `aria-label` / `<title>` on SVGs — rule 1.
+- `prefers-reduced-motion` for D3 transitions — rule 5.

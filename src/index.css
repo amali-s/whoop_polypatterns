@@ -13,18 +13,23 @@
    * run only *defines* tokens and rewires nothing.
    * ============================================================== */
 
-  /* --- Base UI palette --- */
+  /* --- Base UI palette ---
+   * Task 3.4 (WCAG AA audit) darkened four values and added
+   * --color-warning-text; the original 3.1 values are kept in the
+   * per-line comments and the full computed ratios are in design.md
+   * §1. The LOCKED chart palette below is untouched. */
   --color-bg: #e8f3fb; /* app background (airy sky-tinted) */
   --color-surface: #ffffff; /* cards / panels (glossy white) */
   --color-surface-glass: rgba(255, 255, 255, 0.6); /* frosted translucent panels */
   --color-text: #0f2b3d; /* primary text (deep teal-navy) */
-  --color-muted: #5c7689; /* secondary text (blue-grey) */
+  --color-muted: #546d80; /* secondary text (blue-grey) — 3.4: was #5c7689 (4.23:1 on bg) */
   --color-border: #cfe3f0; /* soft blue-tinted hairline */
-  --color-accent: #1e9fe3; /* primary accent (Aero azure) */
-  --color-accent-strong: #1580bd; /* accent hover / pressed */
+  --color-accent: #1173a6; /* primary accent (Aero azure) — 3.4: was #1e9fe3 (2.95:1 white label) */
+  --color-accent-strong: #0f6494; /* accent hover / pressed — 3.4: was #1580bd (4.33:1) */
   --color-positive: #3aa657; /* good / above target (nature green) */
-  --color-negative: #e5484d; /* bad / below target (coral red) */
-  --color-warning: #f5a623; /* caution / attention (warm amber) */
+  --color-negative: #c93848; /* bad / below target (coral red) — 3.4: was #e5484d (3.91:1 on surface) */
+  --color-warning: #f5a623; /* caution / attention (warm amber) — FILLS/DOTS ONLY (2.03:1, never text) */
+  --color-warning-text: #946200; /* 3.4: warning-toned TEXT (5.24:1 on surface, 4.65:1 on bg) */
 
   /* --- Glossy / glass treatment ---
    * Gloss is a *gradient* token, not a flat color: the Aero sheen

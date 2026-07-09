@@ -1,5 +1,114 @@
 # Project state
 
+## Roadmap status (Task 3.4 — responsive + accessibility) — ✅ COMPLETE (verified locally in the dev server) (2026-07-08)
+
+**What's done**
+
+- **Breakpoint audit (375/768/1024/1280px, live in the preview browser, not
+  inferred from CSS):** at every width `document.documentElement.scrollWidth`
+  === `innerWidth` (375/768/1024/1280 exactly — no horizontal overflow), the
+  header computes `position: sticky; top: 0` and sits at `top: 0` after
+  scrolling 500–600px, and no card child overflows its card rect. One real
+  bug found and fixed: at 375px in the **disconnected** state the header's
+  chip + Connect pill (both `white-space: nowrap` by design) ran to 445px →
+  horizontal scroll. Fix: `flex-wrap: wrap` on `.app-header` and
+  `.header-session` (App.css) — the session row wraps under the brand
+  (header 89px tall at 375px, first card top 113px > header bottom 89px, so
+  no clip/overlap). Bento grid confirmed 1-col (327px) at 375 and
+  `218.6px 198.7px 198.7px` 3-col with the §2 named areas at 768/1024/1280.
+- **Color-contrast audit (computed WCAG 2.x relative-luminance ratios via a
+  scratchpad script, all §1 pairings incl. the glass token composited over
+  bg/gradient):** five failures → four token darkenings + one addition, all
+  flagged in design.md §1 with before/after ratios; **LOCKED chart palette
+  untouched**:
+  - `--color-muted` `#5c7689`→`#546d80` (was 4.23:1 on bg; now 4.81 bg /
+    5.42 surface),
+  - `--color-accent` `#1e9fe3`→`#1173a6` (white button label was 2.95:1,
+    focus outline 2.95:1 vs surface; now 5.22:1 label, ≥4.6:1 outline on
+    every shell background),
+  - `--color-accent-strong` `#1580bd`→`#0f6494` (hover label + secondary
+    label were 4.33:1; now 6.42:1),
+  - `--color-negative` `#e5484d`→`#c93848` (error text was 3.91:1 on
+    surface; now 5.07 surface / 4.50 bg),
+  - `--color-warning` **unchanged** but demoted to fills/dots only (2.03:1
+    can never be text); new `--color-warning-text: #946200` (5.24/4.65)
+    now colors the journal-stub text.
+  - Chart-hue consequence handled without touching the palette: legend
+    swatches get a 1px `--color-muted` border (chart-4 pale mustard is
+    1.60:1 on white and can't delineate itself); chart hues as _text_ is
+    banned in §5 (only 2/5/7 would pass, and that invites drift).
+- **Tap targets:** `.ui-btn::after` invisible hit-area extension →
+  `max(100%, 44px)` both axes (measured live: sm pill renders 33px tall,
+  hit area 44px; md 41px → 44px). Form controls get `min-height: 44px` and
+  a `--color-muted` border (the old `--color-border` is 1.32:1 — fine as a
+  decorative card hairline, too faint as a control boundary) — unconsumed
+  until Phase 5, so no visual change today.
+- **Keyboard nav:** grep confirms zero `tabIndex` usage; all interactive
+  elements are native `<a>`/`<button>` (banner dismiss included), so focus
+  order = DOM order = visual order; no traps possible. Focus indicator is
+  the shared `2px solid var(--color-accent)` outline — now ≥4.6:1 on every
+  shell background (needs 3:1). Live-verified both tabbables reachable in
+  the disconnected state.
+- **Reduced motion:** `@media (prefers-reduced-motion: reduce)` in
+  components.css — `ui-spin` animation off (static ring + the LoadingState
+  text label still communicate progress), button color transition snapped.
+  These were the only two animations/transitions in App.css/components.css.
+- **Chart aria (current placeholders):** verified via the accessibility
+  tree — every ChartContainer `<article>` takes its name from the
+  `useId`-linked title; placeholder visuals are `role="img"` with "no data
+  yet" labels; all numeric placeholders are real text; legend swatches
+  `aria-hidden` beside real-text labels; journal stub rows stay
+  `aria-hidden` deliberately (fake sample data) with the exposed note
+  explaining there's no data source.
+- **design.md §5 written** (replacing the TODO): §5.1 = audited shell
+  state + standing rules; §5.2 = the six-rule Phase 4 chart accessibility
+  contract (SVG `<title>`/`<desc>` naming, visually-hidden data-table
+  fallback rendered from the same 2.6 series with null=gap discipline,
+  hover/focus tooltip parity with roving tabindex, color-never-sole
+  encoding + the swatch-border precedent, `matchMedia`-gated D3
+  transitions, legend-toggle semantics).
+- **Incidental:** vite.config.ts now honors a `PORT` env var and
+  `.claude/launch.json` gained `autoPort: true` so a second dev server can
+  run beside the default-port one (needed to verify here; harmless
+  otherwise — `npm run dev` without PORT is unchanged on 5173).
+- Verified on this machine: `npm run build` (tsc + vite), `npm run lint`,
+  `npm run format:check` all pass; every breakpoint/contrast/keyboard claim
+  above was checked against live computed values in the preview browser
+  (screenshots taken at 375px; state exercised: loading → waking →
+  disconnected, the expected dev-only path since plain `vite dev` has no
+  `/api`).
+
+**Known deliberate deltas / exceptions**
+
+- The four token darkenings above are a visible (same-hue, modest) shift of
+  the accent/negative/muted colors — done as the smallest adjustment that
+  clears AA, explicitly reversible if you'd rather solve any of them
+  differently (e.g. dark text on the bright azure instead of darkening it —
+  rejected here because #0f2b3d on #1e9fe3 is 4.46:1, still failing).
+- The legacy OAuth banner's dismiss ✕ (~28×24px) misses the 44px tap
+  target — left alone per the task's do-not-touch list (banner is flagged
+  in design.md §3 as legacy until next touched); noted in §5.1.
+
+**What's still open**
+
+- Connected-state header (chip + Disconnect) was not seen live (no
+  `/api/session` under plain `vite dev`) — it's narrower than the
+  disconnected state's content, so the 375px wrap fix covers it a fortiori;
+  worth one glance on prod. Same caveat as 3.2/3.3.
+- `prefers-reduced-motion` was verified as authored CSS (rules present and
+  well-formed in the CSSOM) — not exercised with an OS-level toggle in the
+  preview browser.
+- Phase 4 must build to the §5.2 contract; nothing enforces it yet
+  (documentation, not lint).
+- Task 3.5 (dark mode) remains optional/unbuilt; the contrast table only
+  covers the light theme.
+
+**What needs human action**
+
+- Commit is local — push when ready (`main` auto-deploys Vercel prod).
+- Optional: eyeball the darker azure CTA/typography on prod once deployed —
+  the deltas are flagged as reversible if the look reads too heavy.
+
 ## Roadmap status (Task 3.3 — component library) — ✅ COMPLETE (verified locally in the dev server) (2026-07-08)
 
 **What's done**

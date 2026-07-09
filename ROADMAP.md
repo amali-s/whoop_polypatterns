@@ -113,7 +113,7 @@ WHOOP v2 resources you'll likely use: **Cycles** (physiological cycles / strain)
 - [ ] **3.1 Design tokens** — color palette (consider a WHOOP-like dark theme), typography scale, spacing, radii. Define as CSS variables / theme object.
 - [ ] **3.2 Layout shell** — header, sidebar/nav, responsive dashboard grid for the chart cards.
 - [ ] **3.3 Component library** — reusable Card, ChartContainer, Loading/Empty/Error states, buttons, form controls.
-- [ ] **3.4 Responsive + accessibility** — mobile breakpoints, color-contrast, keyboard nav, chart `aria`/text alternatives.
+- [x] **3.4 Responsive + accessibility** — mobile breakpoints, color-contrast, keyboard nav, chart `aria`/text alternatives. **Done (2026-07-08):** verified 375/768/1024/1280px (header-wrap fix for a real 375px overflow), computed-ratio WCAG AA audit with four token darkenings + `--color-warning-text` (flagged in design.md §1; LOCKED chart palette untouched), 44×44px tap targets via hit-area extension, keyboard/focus audit (native elements, DOM-order focus, ≥4.6:1 focus outline), `prefers-reduced-motion` support, placeholder-tile aria audit, and the Phase 4 chart accessibility contract written into design.md §5.2. Known exception: the legacy OAuth banner's dismiss ✕ tap target (banner out of scope per §3).
 - [ ] **3.5 Dark/light mode** (optional).
 
 **Skills / knowledge to lean on**
