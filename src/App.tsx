@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 import { checkSessionWithRetry, type SessionStatus } from './session-check';
+import { Card } from './components/Card';
+import { Button } from './components/Button';
+import { ChartContainer } from './components/ChartContainer';
+import { LoadingState, ErrorState } from './components/states';
 
 // A WHOOP provider error forwarded by /api/callback via query params.
 interface OAuthError {
@@ -22,13 +26,14 @@ const STATUS_LABELS: Record<ConnectionState, string> = {
   disconnected: 'Not connected',
 };
 
-// Bento tile set — replaces the earlier 6-slot generic grid. Matches the
-// confirmed Figma layout (file BWF8m6iu8eQJqJghVUbsOQ, node 86:71) tile for
-// tile: period meter, journal, 4 stat/donut tiles, skin-temp sparkline, and
-// the two HRV/RHR combo charts. Real data + real chart rendering is Phase 4;
-// this pass (3.2 follow-up) is the bento shell + placeholder content only.
-// Daily journal has no data source yet (questionnaire is Phase 5) and is
-// explicitly a stub — see the "journal-stub" note rendered in its card.
+// Bento tile set — matches the confirmed Figma layout (file
+// BWF8m6iu8eQJqJghVUbsOQ, node 86:71) tile for tile: period meter, journal,
+// 4 stat/donut tiles, skin-temp sparkline, and the two HRV/RHR combo charts.
+// Task 3.3: each tile now renders on Card + ChartContainer; the tile content
+// is still static placeholder markup passed as ready-state children — real
+// data + real chart rendering is Phase 4, which swaps the children for a D3
+// chart and drives ChartContainer's status from fetch state. Daily journal
+// has no data source yet (questionnaire is Phase 5) and is explicitly a stub.
 
 /** Read whoop_error[...] params that /api/callback may have appended to the URL. */
 function readOAuthError(): OAuthError | null {
@@ -115,14 +120,14 @@ function App() {
           {/* Same real navigations the auth card uses (302 flows, not
               fetches), driven by the same single connection state. */}
           {state === 'connected' && (
-            <a className="btn-pill" href="/api/logout">
+            <Button variant="secondary" size="sm" href="/api/logout">
               Disconnect
-            </a>
+            </Button>
           )}
           {state === 'disconnected' && (
-            <a className="btn-pill" href="/api/auth">
+            <Button variant="secondary" size="sm" href="/api/auth">
               Connect WHOOP
-            </a>
+            </Button>
           )}
         </div>
       </header>
@@ -146,39 +151,31 @@ function App() {
           </div>
         )}
 
-        <section className="card" aria-busy={state === 'loading' || state === 'waking'}>
+        <Card
+          as="section"
+          padding="lg"
+          radius="xl"
+          className="auth-card"
+          aria-busy={state === 'loading' || state === 'waking'}
+        >
           <h2>Connection</h2>
 
-          {state === 'loading' && (
-            <p className="muted" role="status">
-              Checking your connection…
-            </p>
-          )}
+          {state === 'loading' && <LoadingState label="Checking your connection…" />}
 
           {state === 'waking' && (
-            <>
-              <span className="spinner" aria-hidden="true" />
-              <p className="muted" role="status">
-                Waking up your database — free-tier projects doze off when idle. Retrying for up to
-                30 seconds…
-              </p>
-            </>
+            <LoadingState label="Waking up your database — free-tier projects doze off when idle. Retrying for up to 30 seconds…" />
           )}
 
           {state === 'disconnected' && (
             <>
               {unreachable && (
-                <p className="muted" role="alert">
-                  We couldn’t reach your database. Free-tier Supabase projects pause after about a
-                  week of inactivity and have to be resumed from the Supabase dashboard — resume it
-                  there, then refresh this page.
-                </p>
+                <ErrorState message="We couldn’t reach your database. Free-tier Supabase projects pause after about a week of inactivity and have to be resumed from the Supabase dashboard — resume it there, then refresh this page." />
               )}
               <p className="muted">Connect your WHOOP account to pull in your data.</p>
               {/* Top-level redirect (302 flow), not a fetch — use a real navigation. */}
-              <a className="btn btn-primary" href="/api/auth">
+              <Button variant="primary" href="/api/auth">
                 Connect WHOOP
-              </a>
+              </Button>
             </>
           )}
 
@@ -197,11 +194,10 @@ function App() {
               {/* Disconnect moved to the header (task 3.2) — one action, not two. */}
             </>
           )}
-        </section>
+        </Card>
 
         <section className="bento-grid" aria-label="Charts">
-          <article className="bento-card bento-period" aria-labelledby="period-title">
-            <h3 id="period-title">Cycle day —</h3>
+          <ChartContainer className="bento-period" title="Cycle day —" bodyHeight={23}>
             <div
               className="period-bar"
               role="img"
@@ -211,11 +207,13 @@ function App() {
                 <span key={i} className={i < 7 ? 'period-seg period-seg-active' : 'period-seg'} />
               ))}
             </div>
-          </article>
+          </ChartContainer>
 
-          <article className="bento-card bento-journal" aria-labelledby="journal-title">
-            <h3 id="journal-title">Daily journal</h3>
-            <p className="chart-card-kind journal-stub">Stub — Phase 5, not yet built</p>
+          <ChartContainer
+            className="bento-journal"
+            title="Daily journal"
+            subtitle={<span className="journal-stub">Stub — Phase 5, not yet built</span>}
+          >
             <ul className="journal-stub-list" aria-hidden="true">
               <li>Hydrated</li>
               <li>Cramps</li>
@@ -229,10 +227,9 @@ function App() {
             <p className="journal-stub-note">
               No data source yet — the Phase 5 questionnaire hasn't been built.
             </p>
-          </article>
+          </ChartContainer>
 
-          <article className="bento-card bento-recovery" aria-labelledby="recovery-title">
-            <h3 id="recovery-title">Recovery</h3>
+          <ChartContainer className="bento-recovery" title="Recovery">
             <div
               className="stat-donut stat-donut-recovery"
               role="img"
@@ -240,22 +237,19 @@ function App() {
             >
               <span className="stat-donut-value">—</span>
             </div>
-          </article>
+          </ChartContainer>
 
-          <article className="bento-card bento-sleep" aria-labelledby="sleep-title">
-            <h3 id="sleep-title">Sleep</h3>
+          <ChartContainer className="bento-sleep" title="Sleep">
             <p className="stat-value">—:—hrs</p>
             <p className="stat-trend">No data yet</p>
-          </article>
+          </ChartContainer>
 
-          <article className="bento-card bento-calories" aria-labelledby="calories-title">
-            <h3 id="calories-title">Calories</h3>
+          <ChartContainer className="bento-calories" title="Calories">
             <p className="stat-value">— cal</p>
             <p className="stat-trend">No data yet</p>
-          </article>
+          </ChartContainer>
 
-          <article className="bento-card bento-strain" aria-labelledby="strain-title">
-            <h3 id="strain-title">Strain</h3>
+          <ChartContainer className="bento-strain" title="Strain">
             <div
               className="stat-donut stat-donut-strain"
               role="img"
@@ -263,54 +257,63 @@ function App() {
             >
               <span className="stat-donut-value">—</span>
             </div>
-          </article>
+          </ChartContainer>
 
-          <article className="bento-card bento-skintemp" aria-labelledby="skintemp-title">
-            <h3 id="skintemp-title">Skin temp over time</h3>
+          <ChartContainer className="bento-skintemp" title="Skin temp over time" bodyHeight={64}>
             <div
               className="sparkline-placeholder"
               role="img"
               aria-label="Skin temp trend, no data yet"
             />
-          </article>
+          </ChartContainer>
 
-          <article className="bento-card bento-hrv" aria-labelledby="hrv-title">
-            <h3 id="hrv-title">HRV over time</h3>
+          <ChartContainer
+            className="bento-hrv"
+            title="HRV over time"
+            bodyHeight={128}
+            legend={
+              <>
+                <span className="legend-item">
+                  <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
+                  Actual HRV
+                </span>
+                <span className="legend-item">
+                  <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
+                  Ideal HRV
+                </span>
+              </>
+            }
+          >
             <div
               className="combo-chart-placeholder"
               role="img"
               aria-label="HRV over time, no data yet"
             />
-            <div className="chart-legend">
-              <span className="legend-item">
-                <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
-                Actual HRV
-              </span>
-              <span className="legend-item">
-                <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
-                Ideal HRV
-              </span>
-            </div>
-          </article>
+          </ChartContainer>
 
-          <article className="bento-card bento-rhr" aria-labelledby="rhr-title">
-            <h3 id="rhr-title">RHR over time</h3>
+          <ChartContainer
+            className="bento-rhr"
+            title="RHR over time"
+            bodyHeight={128}
+            legend={
+              <>
+                <span className="legend-item">
+                  <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
+                  Actual RHR
+                </span>
+                <span className="legend-item">
+                  <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
+                  Ideal RHR
+                </span>
+              </>
+            }
+          >
             <div
               className="combo-chart-placeholder"
               role="img"
               aria-label="RHR over time, no data yet"
             />
-            <div className="chart-legend">
-              <span className="legend-item">
-                <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
-                Actual RHR
-              </span>
-              <span className="legend-item">
-                <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
-                Ideal RHR
-              </span>
-            </div>
-          </article>
+          </ChartContainer>
         </section>
       </main>
     </>

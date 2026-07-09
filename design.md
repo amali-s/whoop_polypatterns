@@ -248,34 +248,65 @@ specifies a desktop/tablet variant).
 
 ## 3. Component inventory
 
-> Partially built in Phase 3.2 (layout items only); chart, questionnaire,
-> and state components remain TODO.
+> Layout items built in Phase 3.2; component library built in task 3.3
+> (`src/components/`). Chart rendering + data wiring remain Phase 4;
+> questionnaire remains Phase 5.
 
 - App shell / layout — **✅ built (3.2)**: `#root` gradient shell, sticky
   glass header, centered main column (§2).
 - Header / nav — **✅ built (3.2)**: brand + status chip +
   Connect/Disconnect pill, driven by the same connection state as the auth
   card. **No sidebar/nav** — deferred until Phase 5 adds a second page (§2).
-- Auth: "Connect WHOOP" button, connected state — **pre-existing, now shell
-  content**; still on legacy (pre-§1) tokens — restyle is task 3.3.
+- **Card** — **✅ built (3.3)**: `src/components/Card.tsx`, the base
+  glossy/glass surface (`--color-surface` + `--surface-gloss`,
+  `--shadow-card` + inset gloss, `--radius-lg`/`--radius-xl`). Props:
+  `as` (`div`/`section`/`article`), `padding` (`md` = `--space-3` tile
+  density, `lg` = `--space-6` hero), `radius` (`lg` default / `xl`), plus
+  passthrough HTML attrs. Every bento tile and the auth card render on it.
+- **ChartContainer** — **✅ built (3.3)**: `src/components/ChartContainer.tsx`
+  — Card + accessible title slot (`useId`-linked `aria-labelledby`),
+  optional `subtitle` and `legend` slots, `bodyHeight` (owns the fixed
+  placeholder heights 23/64/128px that were hardcoded per tile; Phase 4's
+  responsive charts omit the prop), and `status: 'ready' | 'loading' |
+'empty' | 'error'` — non-ready statuses swap the body for the matching
+  state component. Phase 4 drops a D3 chart in as children and drives
+  `status` from fetch state; no API change expected.
+- **Loading / Empty / Error states** — **✅ built (3.3)**:
+  `src/components/states.tsx` — `LoadingState` (`role="status"` +
+  `aria-live="polite"` + spinner), `EmptyState` (meaningful default text),
+  `ErrorState` (`role="alert"`). Used by ChartContainer and standalone (the
+  auth card uses Loading/Error directly). Wiring them to real fetch state is
+  Phase 4 (4.8).
+- **Button** — **✅ built (3.3)**: `src/components/Button.tsx` —
+  primary/secondary variants on `--color-accent`/`--color-accent-strong` +
+  `--radius-pill`, sizes `md` (card CTA) / `sm` (header pill). Renders a
+  real `<a>` when `href` is given (the OAuth actions are 302 navigations).
+- **Form primitives** — **✅ built (3.3, unconsumed)**:
+  `src/components/form.tsx` — `Label`, `Input`, `Select` on the §1 tokens.
+  Deliberately minimal; the Phase 5 questionnaire is their first consumer.
+- Auth: "Connect WHOOP" button, connected state — **✅ restyled (3.3)**: now
+  a `Card` (`padding="lg"`, `radius="xl"`) + `Button` on the §1 tokens;
+  legacy purple-accent styling gone. Auth logic byte-for-byte unchanged.
+  _Still legacy:_ the OAuth error **banner** keeps its pre-§1 tokens — it
+  wasn't in the 3.3 component list; migrate when it next changes.
 - Dashboard grid container — **✅ revised (3.2 follow-up)**: `.bento-grid`,
-  bento layout/areas per §2, now holding the 9 Figma-matched tiles (period
-  meter, journal stub, recovery/sleep/calories/strain, skin-temp, HRV, RHR)
-  in place of the earlier 6 generic placeholders.
-- Bento tile (period bar, journal stub list, stat donut, stat value, sparkline
-  placeholder, combo-chart placeholder + legend) — **placeholder markup/CSS
-  only (3.2 follow-up)**; real ChartContainer with loading/empty/error states
-  is task 3.3, real chart rendering + data wiring is Phase 4. **TODO**
-- Daily journal tile — **explicit stub**: no data source exists (Phase 5
-  questionnaire not built), rendered with a visible "Stub — Phase 5" label
-  and static placeholder rows so the layout is accurate without implying
-  real functionality.
+  bento layout/areas per §2, unchanged by 3.3 (verified identical
+  `grid-template-areas`/columns before and after the refactor).
+- Bento tiles (period bar, journal stub list, stat donut, stat value,
+  sparkline placeholder, combo-chart placeholder + legend) — **✅ rebuilt on
+  Card + ChartContainer (3.3)**, same grid areas, placeholder visuals passed
+  as ready-state children (deliberately NOT `status="empty"`, so the
+  tile-specific Figma placeholder visuals survive; Phase 4 flips status from
+  real fetch state). Real chart rendering + data wiring is **Phase 4**.
+- Daily journal tile — **explicit stub, now on ChartContainer (3.3)**: same
+  visible "Stub — Phase 5" label (subtitle slot) and static rows; no real
+  journal UI until Phase 5.
 - Chart components: **TODO (Phase 4)**
   - StackedBarChart
   - ComboChart (×2 — bar + line)
   - DotMatrixChart (×3)
-- Questionnaire form + fields — **TODO (Phase 5)**
-- Loading / empty / error states — **TODO (task 3.3)**
+- Questionnaire form + fields — **TODO (Phase 5)** (will consume the 3.3
+  form primitives)
 - Tooltip (shared across charts) — **TODO (Phase 4)**
 
 ---

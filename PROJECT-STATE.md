@@ -1,5 +1,51 @@
 # Project state
 
+## Roadmap status (Task 3.3 — component library) — ✅ COMPLETE (verified locally in the dev server) (2026-07-08)
+
+**What's done**
+
+- **`src/components/`** (new): `Card.tsx` (base glass surface), `Button.tsx`
+  (primary/secondary × md/sm, renders `<a>` for the OAuth 302 navigations),
+  `ChartContainer.tsx` (title/subtitle/legend slots + `bodyHeight` +
+  `status: ready|loading|empty|error`), `states.tsx` (`LoadingState` with
+  `role="status"`+`aria-live="polite"`, `EmptyState`, `ErrorState` with
+  `role="alert"`), `form.tsx` (`Label`/`Input`/`Select`, unconsumed until
+  Phase 5), `components.css` (all component styles, §1 tokens only), `cx.ts`.
+- **App.tsx refactor**: all 9 bento tiles rebuilt on ChartContainer (same
+  grid-area classes, placeholder markup passed as ready-state children);
+  auth card migrated off the legacy purple tokens onto Card + Button +
+  Loading/ErrorState. Auth/session logic byte-for-byte unchanged — only JSX
+  wrappers moved. Journal tile keeps its explicit "Stub — Phase 5" label.
+- **App.css** slimmed to shell + per-tile visuals + auth-card/banner
+  specifics; card surface/buttons/spinner/state styles moved to
+  components.css. §1 tokens in `src/index.css` untouched; bento grid
+  structure/breakpoints untouched.
+- **Known deliberate deltas** (sanctioned as the legacy-auth-card restyle,
+  plus two normalizations): (a) auth card is now Aero-styled (azure primary
+  pill, xl radius); its loading state gained a spinner and the unreachable
+  hint is now a red ErrorState (was muted text) — same `role`s; (b) the
+  128/64px placeholder fills are now `box-sizing: border-box`, so their
+  rendered boxes are exactly 128/64px instead of the old 130/66px
+  (content-box + 1px dashed border) — a 2px normalization on visuals that
+  Phase 4 replaces anyway; (c) connected-card status row/meta list restyled
+  to token sizes (18px→20px status, 15px→14px meta).
+- **OAuth error banner intentionally still on legacy tokens** — not in the
+  3.3 component list; flagged in design.md §3 to migrate when next touched.
+- Verified on this machine: `npx tsc -b --force`, `npx vite build`,
+  `npx eslint .`, `npm run format:check`, `npm run typecheck:api` all pass;
+  dev server inspected in the preview browser — `.bento-grid`
+  grid-template-areas/columns computed identical to §2 (3-col bento ≥640px,
+  single column at 375px), placeholder heights 23/64/128 confirmed, journal
+  note still bottom-pinned, legends on chart-7/chart-4 swatches.
+
+**What's still open**
+
+- Placeholder → real-state wiring (`status` prop driven by fetch state) is
+  Phase 4 (4.8); form primitives consumed in Phase 5.
+- Connected-state card render only typechecked here (plain `vite dev` has no
+  `/api/session`) — same caveat as 3.2; worth one glance on prod.
+- Commit + push (`main` auto-deploys Vercel prod) — not done by this session.
+
 ## Roadmap status (Phase 3.2 — layout shell) — ✅ COMPLETE (verified locally in the dev server) (2026-07-07)
 
 **What's done**
