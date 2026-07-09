@@ -327,19 +327,18 @@ specifies a desktop/tablet variant).
 
 ## 4. Chart → WHOOP-metric mappings
 
-> **TODO: confirm all mappings.** Six charts total. The "Suggested" column is
-> copied from `ROADMAP.md` Phase 4 — these are **suggestions, not locked**.
-> Fill the **Confirmed** column with the metric(s), time window, and aggregation
-> you actually want, then build.
+> **Confirmed 2026-07-09** (user accepted the ROADMAP suggestions as-is,
+> kicking off Phase 4). Chart 6 uses the strain-matrix option, not the
+> questionnaire-correlation option, since Phase 5 does not exist yet.
 
-| #   | Chart type        | Suggested mapping (ROADMAP, to confirm)                                                           | Confirmed |
-| --- | ----------------- | ------------------------------------------------------------------------------------------------- | --------- |
-| 1   | Stacked bar       | Sleep stages per night (Awake / Light / Deep / REM → total sleep), or strain contributors per day | **TODO**  |
-| 2   | Combo (line+area) | Recovery % (line) over Day Strain (area) — readiness vs. load                                     | **TODO**  |
-| 3   | Combo (line+area) | HRV (line) over a rolling baseline band (area), or RHR line over sleep-debt area                  | **TODO**  |
-| 4   | Dot-matrix        | Recovery calendar — one dot/day, color = recovery zone (red/yellow/green)                         | **TODO**  |
-| 5   | Dot-matrix        | Sleep performance — dot size/color = % of sleep need met                                          | **TODO**  |
-| 6   | Dot-matrix        | Strain matrix, or questionnaire-vs-recovery correlation (once Phase 5 exists)                     | **TODO**  |
+| #   | Chart type        | Confirmed mapping                                                                                  |
+| --- | ----------------- | ---------------------------------------------------------------------------------------------------- |
+| 1   | Stacked bar       | Sleep stages per night (Awake / Light / Deep / REM → total sleep)                                     |
+| 2   | Combo (line+area) | Recovery % (line) over Day Strain (area) — readiness vs. load                                         |
+| 3   | Combo (line+area) | HRV (line) over the confirmed ideal-band (area) — see methodology below                               |
+| 4   | Dot-matrix        | Recovery calendar — one dot/day, color = recovery zone (red/yellow/green)                              |
+| 5   | Dot-matrix        | Sleep performance — dot size/color = % of sleep need met                                              |
+| 6   | Dot-matrix        | Strain matrix (one cell/day, color/intensity = day strain). Questionnaire-correlation variant revisited once Phase 5 exists. |
 
 Candidate WHOOP v2 metrics to draw from: recovery %, HRV, resting heart rate,
 day strain, sleep performance, sleep duration/stages, respiratory rate — plus

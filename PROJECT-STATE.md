@@ -1,5 +1,68 @@
 # Project state
 
+## Roadmap status (Task 4.0 — charting foundation) — ✅ COMPLETE (2026-07-09)
+
+**Chart→metric mappings confirmed (2026-07-09):** user accepted the ROADMAP
+Phase 4 suggested mappings as-is; chart 6 (dot-matrix #3) uses the
+strain-matrix variant, not the questionnaire-correlation variant, since
+Phase 5 doesn't exist yet. Locked table is in `design.md` §4.
+
+**What's done** — `src/components/charts/`, D3 (+ `@types/d3`) added to
+`package.json` dependencies:
+
+- `useChartDimensions.ts` — responsive SVG sizing via `ResizeObserver` on a
+  wrapper `<div>`; charts render `viewBox="0 0 width height"` so they scale
+  fluidly instead of blurring between measurements. Returns a bounded
+  plot-area (width/height minus margins, floored at 0).
+- `scales.ts` — re-exports `d3-scale`'s `scaleLinear`/`scaleBand`/`scaleTime`/
+  `scaleOrdinal`, plus `safeExtent()` (null-safe `d3.extent` wrapper with a
+  fallback domain so an empty dataset renders a valid empty axis instead of
+  throwing) and `dayDomain()` for day-string series.
+- `Axis.tsx` — shared bottom/left axis. Deliberately **not** an imperative
+  `d3.axis()` call into a ref — D3 only supplies the scale + computed tick
+  values, React renders the `<g>/<line>/<text>` elements declaratively, per
+  the roadmap's "React owns DOM/state, D3 owns scales/shapes" split. Every
+  tick label is real DOM text.
+- `motion.ts` — `prefersReducedMotion()` / `chartTransitionDuration()`,
+  mirrors the existing CSS `@media (prefers-reduced-motion: reduce)` rule;
+  every chart's D3 transitions must be gated through this (design.md §5.2
+  rule 5).
+- `Tooltip.tsx` + `useTooltip.ts` — shared floating tooltip box and a
+  hover/focus state hook with one `show()` entry point so mouse and keyboard
+  focus open the identical tooltip (rule 3), plus Escape-to-dismiss.
+- `Legend.tsx` — same swatch (`aria-hidden`, `--color-muted` bordered) +
+  real-text-label pattern already locked in `App.css` (task 3.4); adds an
+  optional `onToggle` that renders a real `<button aria-pressed>` for 4.7's
+  interactive legends instead of a plain span.
+- `ChartSvg.tsx` — accessible `<svg role="img">` wrapper wiring
+  `aria-labelledby` to a `<title>`/`<desc>` pair (rule 1); `<desc>` must
+  describe the data, not the chart type — enforced by the required `desc` prop.
+- `ChartDataTable.tsx` — visually-hidden (`.sr-only-table`), screen-reader-
+  exposed data table (rule 2); renders from the same series prop the SVG
+  draws from, never a re-fetch. Null cells render "no data", never 0.
+- `charts.css` — axis stroke/text styles, `.chart-tooltip` positioning,
+  `.legend-item-toggle` (with `aria-pressed='false'` dimming),
+  `.chart-mark:focus-visible` (rule 3's focusable point outline), and
+  `.sr-only-table`. Tokens-only, same discipline as `components.css`.
+- Barrel export: `src/components/charts/index.ts`.
+
+Verified in the sandbox: `npx tsc -b --force` clean, `npx eslint .` clean,
+`npx prettier --check` clean (after `--write`), `npx vite build` succeeds
+(built against a temp outDir — same stale-file sandbox quirk as prior
+phases, unrelated to the code).
+
+**What's still open / flagged for a decision before 4.1–4.6 proceed:**
+
+- **Layout gap:** the confirmed Figma bento grid (Phase 3.2 follow-up) has 9
+  tiles — period, journal, recovery donut, sleep stat, calories stat, strain
+  donut, skin-temp sparkline, HRV combo, RHR combo. Only 2 of those (HRV,
+  RHR) are combo charts matching ROADMAP Phase 4's 6 chart types. There is
+  **no existing tile** for the stacked-bar (sleep stages) or any of the 3
+  dot-matrix charts (recovery calendar, sleep performance, strain matrix) —
+  those need a layout decision (new bento tiles/rows, or replace an existing
+  stat/donut tile) before 4.1/4.4/4.5/4.6 can be built. Not blocking 4.2/4.3
+  (HRV/RHR already have homes) or the foundation itself.
+
 ## Roadmap status (Task 3.4 — responsive + accessibility) — ✅ COMPLETE (verified locally in the dev server) (2026-07-08)
 
 **What's done**

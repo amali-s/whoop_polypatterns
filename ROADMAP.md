@@ -143,7 +143,7 @@ General D3+React pattern: let **React own the DOM / SVG container and state**, l
 - [ ] **4.7 Interactivity** — tooltips, hover, date-range filter, legend toggles shared across charts.
 - [ ] **4.8 Loading/empty/error states** wired to the data layer.
 
-> The chart→metric mappings above are **my suggestions**, not a requirement — tell me which WHOOP metric you actually want in each and I'll lock them in.
+> **Confirmed 2026-07-09** — mappings above accepted as-is (4.6 uses the strain-matrix variant, not the questionnaire-correlation variant, since Phase 5 doesn't exist yet). See design.md §4 for the locked table.
 
 **Skills / knowledge to lean on**
 
