@@ -168,7 +168,9 @@ upward (48/64) for airy dashboard breathing room.
 
 ## 2. Layout / grid
 
-> **Authored in Phase 3.2 (layout shell).** Values below are implemented in
+> **Authored in Phase 3.2 (layout shell); chart grid revised in a 3.2
+> follow-up to match a confirmed Figma bento layout** (file
+> `BWF8m6iu8eQJqJghVUbsOQ`, node `86:71`). Values below are implemented in
 > `src/index.css` (`#root`) and `src/App.css` (shell section), built on the
 > §1 tokens.
 
@@ -199,25 +201,48 @@ body (--color-bg)
   (`--space-7` bottom), `--space-5` vertical gap between banner / card /
   grid. 1200px is a **layout constant, not a §1 token** (§1 is locked).
 
-### Dashboard grid & breakpoints
+### Dashboard grid & breakpoints — bento (revised)
 
-CSS grid (`.dashboard-grid`), gap `--space-5`, equal-width `1fr` columns —
-six chart cards, so every breakpoint tiles evenly with no orphans:
+**Superseded the earlier uniform 6-card `1fr` grid.** The confirmed Figma
+frame (node `86:71`) is an asymmetric bento layout, not equal tiles, and
+introduces tile types beyond the original 6 Phase-4 chart placeholders:
+Period meter, Daily journal (stub — see below), Recovery donut, Sleep stat,
+Calories stat, Strain donut, Skin-temp sparkline, HRV combo chart, RHR combo
+chart (9 tiles total).
 
-| Breakpoint          | Columns | Layout of the 6 cards |
-| ------------------- | ------- | --------------------- |
-| mobile `< 640px`    | 1       | 6 × 1 stack           |
-| tablet `640–1023px` | 2       | 3 rows × 2            |
-| desktop `≥ 1024px`  | 3       | 2 rows × 3            |
+CSS grid (`.bento-grid`), gap `--space-3` (tighter than the old `--space-5` —
+the Figma tiles are dense, not spacious):
 
-At the 1200px column cap, 3 columns ≈ 368px per card — comfortable for the
-Phase 4 responsive SVGs. Breakpoints are **literal px in the media queries**
-(plain-CSS `@media` cannot read custom properties); this table is their
-source of truth.
+| Breakpoint       | Columns | Layout                                                                                                                                                                                               |
+| ---------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| mobile `<640px`  | 1       | All 9 tiles stacked in Figma's reading order (DOM order = visual order, no named areas needed)                                                                                                       |
+| tablet+ `≥640px` | 3       | Named-area bento: period (full width) → journal (tall left column) beside a 2×2 of recovery/sleep/calories/strain → skin-temp (full width of the right 2 cols) → HRV (full width) → RHR (full width) |
 
-- Chart sizing: responsive SVG that fits its grid cell (Phase 4). The 3.2
-  placeholder body reserves `min-height: 180px` — a placeholder value, not a
-  chart-sizing decision.
+Exact `grid-template-areas` (see `App.css`):
+
+```
+"period   period   period"
+"journal  recovery sleep"
+"journal  calories strain"
+"journal  skintemp skintemp"
+"hrv      hrv      hrv"
+"rhr      rhr      rhr"
+```
+
+Columns are `1.1fr 1fr 1fr` — approximates the Figma ratio (journal column
+134px vs. 124px for the others), not scraped pixel-for-pixel.
+
+**Adaptation flagged for confirmation:** the Figma frame is a mobile mockup
+(430px canvas) with intentionally dense/compact tiles. Rather than stretch
+the bento grid to the dashboard's existing 1200px column (which would blow
+up the donuts/stat numbers to an odd oversized scale), `.bento-grid` is
+capped at `max-width: 640px` and centered on all breakpoints — a reversible
+engineering call, not a value taken directly from Figma (which never
+specifies a desktop/tablet variant).
+
+- Chart sizing: HRV/RHR combo-chart and skin-temp sparkline placeholders
+  currently reserve fixed heights (128px / 64px) — placeholder values, not a
+  Phase 4 chart-sizing decision; real D3 charts will size responsively.
 
 ---
 
@@ -233,12 +258,18 @@ source of truth.
   card. **No sidebar/nav** — deferred until Phase 5 adds a second page (§2).
 - Auth: "Connect WHOOP" button, connected state — **pre-existing, now shell
   content**; still on legacy (pre-§1) tokens — restyle is task 3.3.
-- Dashboard grid container — **✅ built (3.2)**: `.dashboard-grid`,
-  breakpoints/columns per §2, currently holding six placeholder chart cards
-  (title + kind + "chart coming soon" body).
-- Chart card (title, subtitle, the SVG chart, optional legend) —
-  **placeholder only (3.2)**; real ChartContainer with loading/empty/error
-  states is task 3.3. **TODO**
+- Dashboard grid container — **✅ revised (3.2 follow-up)**: `.bento-grid`,
+  bento layout/areas per §2, now holding the 9 Figma-matched tiles (period
+  meter, journal stub, recovery/sleep/calories/strain, skin-temp, HRV, RHR)
+  in place of the earlier 6 generic placeholders.
+- Bento tile (period bar, journal stub list, stat donut, stat value, sparkline
+  placeholder, combo-chart placeholder + legend) — **placeholder markup/CSS
+  only (3.2 follow-up)**; real ChartContainer with loading/empty/error states
+  is task 3.3, real chart rendering + data wiring is Phase 4. **TODO**
+- Daily journal tile — **explicit stub**: no data source exists (Phase 5
+  questionnaire not built), rendered with a visible "Stub — Phase 5" label
+  and static placeholder rows so the layout is accurate without implying
+  real functionality.
 - Chart components: **TODO (Phase 4)**
   - StackedBarChart
   - ComboChart (×2 — bar + line)
@@ -268,6 +299,62 @@ source of truth.
 Candidate WHOOP v2 metrics to draw from: recovery %, HRV, resting heart rate,
 day strain, sleep performance, sleep duration/stages, respiratory rate — plus
 questionnaire self-reports. Confirm exact mapping (and time window) per chart.
+
+### HRV / RHR "ideal" band — confirmed methodology (feeds Phase 2.6)
+
+**Confirmed direction:** "Ideal" is a **normative reference band** — what
+published research says a typical cycle-driven fluctuation looks like — not
+a personalized predictive/trend line. The user compares their actual
+HRV/RHR against it to see whether their own fluctuation looks
+typical/normal or looks abnormal.
+
+**Source (verified directly, not from memory):** Lee et al., "A novel method
+for quantifying fluctuations in wearable-derived daily cardiovascular
+parameters across the menstrual cycle," _npj Digital Health_, 2024.
+doi:10.1038/s41746-024-01394-0. N = 11,590 naturally-cycling participants,
+45,811 cycles, WHOOP-derived data.
+
+**What the paper actually gives us (only two anchor points per metric, not
+a full published day-by-day curve — the full curve is in the paper's Figure
+2, which is an image I could not extract numeric data from):**
+
+| Metric      | Extreme point         | Offset from that person's own cycle mean |
+| ----------- | --------------------- | ---------------------------------------- |
+| RHR         | Nadir ≈ cycle day 4.8 | −1.83 BPM                                |
+| RHR         | Peak ≈ cycle day 26.4 | +1.64 BPM                                |
+| HRV (RMSSD) | Max ≈ cycle day 4.8   | +3.57 ms                                 |
+| HRV (RMSSD) | Min ≈ cycle day 27.1  | −3.22 ms                                 |
+
+The paper's named "amplitude" figures (RHR +2.73 BPM avg, HRV −4.65 ms avg —
+these are the numbers WHOOP's own blog post cites) are actually a _two-window
+comparison_: mean(cycle days 2–8) vs. mean(the final 7 days of that
+person's own cycle length) — deliberately not a fixed day number, since
+cycle length varies person to person (cohort mean was 27.42 ± 2.16 days).
+
+**Confirmed centering (2026-07-08):** the band centers on **this user's own
+overall historical average** RHR/HRV (computed from their synced
+`whoop_recovery` data) — not the population's absolute BPM/ms level, since
+the paper only publishes _relative offsets from cycle mean_, and not a
+personalized trend/forecast either. The center is a single baseline
+constant; the _shape_ of the fluctuation around it is the population
+pattern from the study.
+
+**Curve shape — approximated, flagged explicitly in-app:** because only the
+two anchor points (not the full published curve) are available, the ideal
+band is built by **interpolating a smooth curve between the two known
+anchor points** per metric (nadir/peak day + offset). This is a reasonable
+approximation of the study's shape, but it is **not** the literal published
+curve — the UI must label it as "modeled from published population
+averages," not as raw study data, and should say "outside the typical
+range" rather than implying a medical abnormality (individual spread in the
+study was large — RHR-amplitude SD ≈ ±1.95 BPM around a 2.73 BPM mean, HRV
+even wider — so being outside the modeled band does not, on its own, mean
+something is wrong).
+
+**Still open / not yet built:** the actual transform code (Phase 2.6), and
+whether a more precise version of the full curve can be sourced later (e.g.
+supplementary data tables, if the paper publishes exact per-day GAMM
+coefficients) rather than the two-anchor-point interpolation used here.
 
 ---
 

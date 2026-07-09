@@ -109,35 +109,77 @@
   gap: var(--space-5);
 }
 
-/* Responsive chart grid — breakpoints per design.md §2. Plain-CSS
- * media queries can't read custom properties, so the px values are
- * literal here; design.md §2 is their source of truth. */
-.dashboard-grid {
+/* ==============================================================
+ * Bento dashboard grid (Figma file BWF8m6iu8eQJqJghVUbsOQ, node
+ * 86:71). Replaces the earlier uniform 6-card grid (design.md §2
+ * history). Mobile stacks every tile in Figma's reading order
+ * (grid-template-columns: 1fr, no named areas needed — DOM order
+ * already matches); tablet+ applies the named-area bento layout.
+ *
+ * The Figma frame is a mobile mockup (430px canvas) with fairly
+ * small, dense tiles — deliberately kept compact here too (capped
+ * max-width, tight gap) rather than stretched to the dashboard's
+ * 1200px column, so donuts/stat numbers don't blow up oversized on
+ * desktop. Flagged as a reversible adaptation call, not a 1:1 spec
+ * value from Figma (which only gives mobile dimensions). */
+.bento-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-5);
+  gap: var(--space-3);
   width: 100%;
+  max-width: 640px;
+  margin-inline: auto;
 }
 
 @media (min-width: 640px) {
-  .dashboard-grid {
-    grid-template-columns: repeat(2, 1fr);
+  .bento-grid {
+    grid-template-columns: 1.1fr 1fr 1fr;
+    grid-template-areas:
+      'period period period'
+      'journal recovery sleep'
+      'journal calories strain'
+      'journal skintemp skintemp'
+      'hrv hrv hrv'
+      'rhr rhr rhr';
+  }
+
+  .bento-period {
+    grid-area: period;
+  }
+  .bento-journal {
+    grid-area: journal;
+  }
+  .bento-recovery {
+    grid-area: recovery;
+  }
+  .bento-sleep {
+    grid-area: sleep;
+  }
+  .bento-calories {
+    grid-area: calories;
+  }
+  .bento-strain {
+    grid-area: strain;
+  }
+  .bento-skintemp {
+    grid-area: skintemp;
+  }
+  .bento-hrv {
+    grid-area: hrv;
+  }
+  .bento-rhr {
+    grid-area: rhr;
   }
 }
 
-@media (min-width: 1024px) {
-  .dashboard-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-/* Placeholder chart card (task 3.2). Real ChartContainer with
- * loading/empty/error states is task 3.3. */
-.chart-card {
+/* Shared bento tile shell — same gloss/card treatment as the rest of the
+ * shell (design.md §1), tighter padding than the old .chart-card to match
+ * the Figma tile density. */
+.bento-card {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-5);
+  padding: var(--space-3);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: var(--surface-gloss), var(--color-surface);
@@ -145,11 +187,11 @@
   text-align: left;
 }
 
-.chart-card h3 {
+.bento-card h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
   color: var(--color-text);
 }
 
@@ -157,21 +199,130 @@
   margin: 0;
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--color-muted);
 }
 
-.chart-card-placeholder {
+/* --- Period meter (cycle day bar strip) --- */
+.period-bar {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 23px;
+}
+
+.period-seg {
+  flex: 1;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--color-border);
+}
+
+/* Chart-3 is the confirmed shared token for skin-temp / period-meter
+ * (design.md §1 mapping — the two never co-occur in one chart). */
+.period-seg-active {
+  background: var(--color-chart-3);
+}
+
+/* --- Daily journal (stub, Phase 5 has no data source yet) --- */
+.journal-stub {
+  color: var(--color-warning);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.journal-stub-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+
+.journal-stub-note {
+  margin-top: auto;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+/* --- Recovery / Strain donuts (placeholder ring, no data yet) --- */
+.stat-donut {
+  align-self: center;
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
-  min-height: 180px; /* placeholder only — Phase 4 charts size responsively */
-  margin-top: var(--space-2);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-glass);
+  border: 8px solid var(--color-border);
+}
+
+.stat-donut-value {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
   color: var(--color-muted);
-  font-size: var(--text-sm);
+}
+
+/* --- Sleep / Calories stat tiles --- */
+.stat-value {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-regular);
+  color: var(--color-text);
+}
+
+.stat-trend {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+/* --- Skin-temp sparkline placeholder --- */
+.sparkline-placeholder {
+  height: 64px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(217, 208, 89, 0.35), rgba(217, 208, 89, 0.05));
+  border: 1px dashed var(--color-border);
+}
+
+/* --- HRV / RHR combo chart placeholders + legend --- */
+.combo-chart-placeholder {
+  height: 128px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--color-border);
+  background: var(--color-surface-glass);
+}
+
+.chart-legend {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* Chart-7 / chart-4 are the confirmed shared tokens for HRV+RHR
+ * "actual" and "ideal" respectively (design.md §1 mapping). */
+.legend-swatch-actual {
+  background: var(--color-chart-7);
+}
+.legend-swatch-ideal {
+  background: var(--color-chart-4);
 }
 
 /* --- Auth card (pre-3.2 markup, legacy tokens until task 3.3) --- */

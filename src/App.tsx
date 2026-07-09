@@ -22,17 +22,13 @@ const STATUS_LABELS: Record<ConnectionState, string> = {
   disconnected: 'Not connected',
 };
 
-// Six placeholder slots for the Phase 4 charts. Titles follow the SUGGESTED
-// (unconfirmed) mappings in design.md §4; the real ChartContainer with
-// loading/empty/error states is task 3.3, the charts themselves Phase 4.
-const CHART_SLOTS: { title: string; kind: string }[] = [
-  { title: 'Sleep stages', kind: 'Stacked bar' },
-  { title: 'Recovery vs. strain', kind: 'Combo · line + area' },
-  { title: 'HRV vs. baseline', kind: 'Combo · line + area' },
-  { title: 'Recovery calendar', kind: 'Dot matrix' },
-  { title: 'Sleep performance', kind: 'Dot matrix' },
-  { title: 'Strain matrix', kind: 'Dot matrix' },
-];
+// Bento tile set — replaces the earlier 6-slot generic grid. Matches the
+// confirmed Figma layout (file BWF8m6iu8eQJqJghVUbsOQ, node 86:71) tile for
+// tile: period meter, journal, 4 stat/donut tiles, skin-temp sparkline, and
+// the two HRV/RHR combo charts. Real data + real chart rendering is Phase 4;
+// this pass (3.2 follow-up) is the bento shell + placeholder content only.
+// Daily journal has no data source yet (questionnaire is Phase 5) and is
+// explicitly a stub — see the "journal-stub" note rendered in its card.
 
 /** Read whoop_error[...] params that /api/callback may have appended to the URL. */
 function readOAuthError(): OAuthError | null {
@@ -203,14 +199,118 @@ function App() {
           )}
         </section>
 
-        <section className="dashboard-grid" aria-label="Charts">
-          {CHART_SLOTS.map((slot) => (
-            <article className="chart-card" key={slot.title}>
-              <h3>{slot.title}</h3>
-              <p className="chart-card-kind">{slot.kind}</p>
-              <div className="chart-card-placeholder">Chart coming soon</div>
-            </article>
-          ))}
+        <section className="bento-grid" aria-label="Charts">
+          <article className="bento-card bento-period" aria-labelledby="period-title">
+            <h3 id="period-title">Cycle day —</h3>
+            <div
+              className="period-bar"
+              role="img"
+              aria-label="Cycle progress placeholder — no data yet"
+            >
+              {Array.from({ length: 28 }, (_, i) => (
+                <span key={i} className={i < 7 ? 'period-seg period-seg-active' : 'period-seg'} />
+              ))}
+            </div>
+          </article>
+
+          <article className="bento-card bento-journal" aria-labelledby="journal-title">
+            <h3 id="journal-title">Daily journal</h3>
+            <p className="chart-card-kind journal-stub">Stub — Phase 5, not yet built</p>
+            <ul className="journal-stub-list" aria-hidden="true">
+              <li>Hydrated</li>
+              <li>Cramps</li>
+              <li>Period</li>
+              <li>Discharge</li>
+              <li>Afternoon snack</li>
+              <li>Traveled</li>
+              <li>Caffeine</li>
+              <li>Alcohol</li>
+            </ul>
+            <p className="journal-stub-note">
+              No data source yet — the Phase 5 questionnaire hasn't been built.
+            </p>
+          </article>
+
+          <article className="bento-card bento-recovery" aria-labelledby="recovery-title">
+            <h3 id="recovery-title">Recovery</h3>
+            <div
+              className="stat-donut stat-donut-recovery"
+              role="img"
+              aria-label="Recovery, no data yet"
+            >
+              <span className="stat-donut-value">—</span>
+            </div>
+          </article>
+
+          <article className="bento-card bento-sleep" aria-labelledby="sleep-title">
+            <h3 id="sleep-title">Sleep</h3>
+            <p className="stat-value">—:—hrs</p>
+            <p className="stat-trend">No data yet</p>
+          </article>
+
+          <article className="bento-card bento-calories" aria-labelledby="calories-title">
+            <h3 id="calories-title">Calories</h3>
+            <p className="stat-value">— cal</p>
+            <p className="stat-trend">No data yet</p>
+          </article>
+
+          <article className="bento-card bento-strain" aria-labelledby="strain-title">
+            <h3 id="strain-title">Strain</h3>
+            <div
+              className="stat-donut stat-donut-strain"
+              role="img"
+              aria-label="Strain, no data yet"
+            >
+              <span className="stat-donut-value">—</span>
+            </div>
+          </article>
+
+          <article className="bento-card bento-skintemp" aria-labelledby="skintemp-title">
+            <h3 id="skintemp-title">Skin temp over time</h3>
+            <div
+              className="sparkline-placeholder"
+              role="img"
+              aria-label="Skin temp trend, no data yet"
+            />
+          </article>
+
+          <article className="bento-card bento-hrv" aria-labelledby="hrv-title">
+            <h3 id="hrv-title">HRV over time</h3>
+            <div
+              className="combo-chart-placeholder"
+              role="img"
+              aria-label="HRV over time, no data yet"
+            />
+            <div className="chart-legend">
+              <span className="legend-item">
+                <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
+                Actual HRV
+              </span>
+              <span className="legend-item">
+                <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
+                Ideal HRV
+              </span>
+            </div>
+          </article>
+
+          <article className="bento-card bento-rhr" aria-labelledby="rhr-title">
+            <h3 id="rhr-title">RHR over time</h3>
+            <div
+              className="combo-chart-placeholder"
+              role="img"
+              aria-label="RHR over time, no data yet"
+            />
+            <div className="chart-legend">
+              <span className="legend-item">
+                <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
+                Actual RHR
+              </span>
+              <span className="legend-item">
+                <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
+                Ideal RHR
+              </span>
+            </div>
+          </article>
         </section>
       </main>
     </>
