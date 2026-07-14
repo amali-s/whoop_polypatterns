@@ -15,4 +15,6 @@ export { ChartDataTable } from './ChartDataTable';
 export type { ChartDataColumn } from './ChartDataTable';
 export { StackedBarChart } from './StackedBarChart';
 export type { StackedBarChartProps, StackedBarSeriesKey } from './StackedBarChart';
+export { RecoveryStrainComboChart } from './RecoveryStrainComboChart';
+export type { RecoveryStrainComboChartProps } from './RecoveryStrainComboChart';
 import './charts.css';

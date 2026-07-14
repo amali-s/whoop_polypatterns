@@ -24,7 +24,10 @@ function tickPosition(scale: AnyScale, value: string | number | Date): number {
 
 export interface AxisProps {
   scale: AnyScale;
-  orientation: 'bottom' | 'left';
+  /** 'right' (added 4.2, dual-scale combo): same vertical line as 'left' but
+   *  ticks/labels grow rightward — for an axis on the plot's right edge, where
+   *  a translated left axis would paint its labels inside the plot area. */
+  orientation: 'bottom' | 'left' | 'right';
   /** Plot-area length along the axis (boundedWidth for bottom, boundedHeight for left). */
   length: number;
   tickCount?: number;
@@ -71,6 +74,9 @@ export function Axis({
   }, [scale, tickCount, tickValues]);
 
   const isBottom = orientation === 'bottom';
+  // 'right' shares the vertical domain line with 'left'; only the tick marks,
+  // label offsets, and anchoring mirror to the +x side.
+  const isRight = orientation === 'right';
 
   return (
     <g className={`chart-axis chart-axis-${orientation}`} aria-hidden="true">
@@ -80,12 +86,12 @@ export function Axis({
         const key = value instanceof Date ? value.toISOString() : String(value);
         return (
           <g key={key ?? i} transform={isBottom ? `translate(${pos}, 0)` : `translate(0, ${pos})`}>
-            <line x1={0} y1={0} x2={isBottom ? 0 : -4} y2={isBottom ? 4 : 0} />
+            <line x1={0} y1={0} x2={isBottom ? 0 : isRight ? 4 : -4} y2={isBottom ? 4 : 0} />
             <text
-              x={isBottom ? 0 : -8}
+              x={isBottom ? 0 : isRight ? 8 : -8}
               y={isBottom ? 16 : 0}
               dy={isBottom ? undefined : '0.32em'}
-              textAnchor={isBottom ? 'middle' : 'end'}
+              textAnchor={isBottom ? 'middle' : isRight ? 'start' : 'end'}
             >
               {format(value)}
             </text>
@@ -95,10 +101,10 @@ export function Axis({
       {label && (
         <text
           className="chart-axis-label"
-          x={isBottom ? length / 2 : -length / 2}
-          y={isBottom ? 34 : -24}
+          x={isBottom || isRight ? length / 2 : -length / 2}
+          y={isBottom ? 34 : isRight ? -34 : -24}
           textAnchor="middle"
-          transform={isBottom ? undefined : 'rotate(-90)'}
+          transform={isBottom ? undefined : isRight ? 'rotate(90)' : 'rotate(-90)'}
         >
           {label}
         </text>

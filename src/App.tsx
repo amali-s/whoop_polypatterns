@@ -5,8 +5,13 @@ import { Card } from './components/Card';
 import { Button } from './components/Button';
 import { ChartContainer, type ChartStatus } from './components/ChartContainer';
 import { LoadingState, ErrorState } from './components/states';
-import { StackedBarChart, type StackedBarSeriesKey } from './components/charts';
+import {
+  RecoveryStrainComboChart,
+  StackedBarChart,
+  type StackedBarSeriesKey,
+} from './components/charts';
 import { useSleepStages } from './hooks/useSleepStages';
+import { useDailySeries } from './hooks/useDailySeries';
 import type { SleepStageBreakdownPoint } from '../api/_lib/transforms';
 
 // A WHOOP provider error forwarded by /api/callback via query params.
@@ -85,6 +90,46 @@ function SleepStagesTile() {
         title="Sleep stages per night"
         tableCaption={`Sleep stage minutes per night, last ${SLEEP_STAGE_DAYS} nights`}
         unit="minutes"
+      />
+    </ChartContainer>
+  );
+}
+
+const RECOVERY_STRAIN_DAYS = 30;
+
+/**
+ * Full-width combo-chart row below the bento grid (same "Layout gap" decision
+ * as SleepStagesTile — chart 4.2 has no bento slot). Drives ChartContainer's
+ * status from the fetch state.
+ */
+function RecoveryStrainTile() {
+  const series = useDailySeries(RECOVERY_STRAIN_DAYS);
+  const points = series.status === 'ready' ? series.points : [];
+  // buildDailySeries emits a point for EVERY day in the window (all-null on
+  // dataless days), so unlike sleep-stages `points.length === 0` never means
+  // "no data" here — empty is "no day carries either plotted metric".
+  const hasData = points.some((p) => p.recoveryScore != null || p.strain != null);
+  const status: ChartStatus =
+    series.status === 'unauthenticated' || (series.status === 'ready' && !hasData)
+      ? 'empty'
+      : series.status;
+  return (
+    <ChartContainer
+      title="Recovery vs. strain"
+      subtitle={`Recovery % (line, left axis) over day strain (area, right axis) — last ${RECOVERY_STRAIN_DAYS} days`}
+      status={status}
+      loadingLabel="Loading your recovery and strain…"
+      emptyMessage={
+        series.status === 'unauthenticated'
+          ? 'Connect your WHOOP account to see your recovery and strain.'
+          : `No recovery or strain data in the last ${RECOVERY_STRAIN_DAYS} days — run a sync, then refresh.`
+      }
+      errorMessage="Couldn’t load recovery and strain. Refresh to try again."
+    >
+      <RecoveryStrainComboChart
+        data={points}
+        title="Recovery vs. strain"
+        tableCaption={`Daily recovery percent and day strain, last ${RECOVERY_STRAIN_DAYS} days`}
       />
     </ChartContainer>
   );
@@ -372,6 +417,7 @@ function App() {
         </section>
 
         <SleepStagesTile />
+        <RecoveryStrainTile />
       </main>
     </>
   );
