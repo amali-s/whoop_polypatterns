@@ -157,26 +157,10 @@
 /* Per-tile placeholder visuals below fill the ChartContainer body,
  * which owns the fixed placeholder heights (bodyHeight prop). */
 
-/* --- Period meter (cycle day bar strip) --- */
-.period-bar {
-  display: flex;
-  gap: 3px;
-  align-items: flex-end;
-  height: 100%;
-}
-
-.period-seg {
-  flex: 1;
-  height: 100%;
-  border-radius: 1px;
-  background: var(--color-border);
-}
-
-/* Chart-3 is the confirmed shared token for skin-temp / period-meter
- * (design.md §1 mapping — the two never co-occur in one chart). */
-.period-seg-active {
-  background: var(--color-chart-3);
-}
+/* Period meter: real DotMatrix component since 4.10 (charts.css) — the
+ * .period-bar/.period-seg placeholder strip styles are gone. Chart-3 remains
+ * the confirmed shared skin-temp / period-meter token (design.md §1 mapping —
+ * the two never co-occur in one chart); DotMatrix defaults to it. */
 
 /* --- Daily journal (stub, Phase 5 has no data source yet) --- */
 .journal-stub {

@@ -19,4 +19,6 @@ export { RecoveryStrainComboChart } from './RecoveryStrainComboChart';
 export type { RecoveryStrainComboChartProps } from './RecoveryStrainComboChart';
 export { ProgressRing } from './ProgressRing';
 export type { ProgressRingProps } from './ProgressRing';
+export { DotMatrix } from './DotMatrix';
+export type { DotMatrixProps } from './DotMatrix';
 import './charts.css';

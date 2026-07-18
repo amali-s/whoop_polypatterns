@@ -123,10 +123,49 @@
   color: var(--color-muted);
 }
 
+/* Phase 4.10 — period-meter dot matrix. Fills the tile width; the SVG's
+ * viewBox scales the fixed logical dot slots to it. */
+.dot-matrix {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.dot-matrix-row {
+  width: 100%;
+  max-height: 23px; /* the placeholder strip's height, kept for the bento rhythm */
+}
+
+/* Real text, never color-only (§5.2 rule 4; chart-3 is fill-safe but the
+ * value never relies on it). */
+.dot-matrix-value {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.dot-matrix-value-muted {
+  color: var(--color-muted);
+}
+
+.dot-matrix-caption {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
 /* §5.2 rule 5, CSS side of the double gate (JS side: chartTransitionDuration
  * renders the final dashoffset immediately). */
 @media (prefers-reduced-motion: reduce) {
   .progress-ring-progress {
+    transition: none !important;
+  }
+
+  .dot-matrix-dot {
     transition: none !important;
   }
 }

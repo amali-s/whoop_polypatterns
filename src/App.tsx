@@ -6,11 +6,13 @@ import { Button } from './components/Button';
 import { ChartContainer, type ChartStatus } from './components/ChartContainer';
 import { LoadingState, ErrorState } from './components/states';
 import {
+  DotMatrix,
   ProgressRing,
   RecoveryStrainComboChart,
   StackedBarChart,
   type StackedBarSeriesKey,
 } from './components/charts';
+import { cycleState, type PeriodLog } from './lib/cycle';
 import { useSleepStages } from './hooks/useSleepStages';
 import { useDailySeries, type DailySeriesState } from './hooks/useDailySeries';
 import type { DailyMetricPoint, SleepStageBreakdownPoint } from '../api/_lib/transforms';
@@ -266,6 +268,81 @@ function StrainRingTile({ series }: { series: DailySeriesState }) {
   );
 }
 
+/** Today as a local 'YYYY-MM-DD' — the calendar day the user is living in. */
+function localTodayISO(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/**
+ * Bento period tile (§4: dot-matrix cycle-day meter; self-reported — the
+ * WHOOP v2 API has no menstrual-cycle resource). PHASE 5 SEAM: when the daily
+ * journal ships its tri-state "Period" field, pass the full log history (and
+ * the once-asked typical cycle length) as props — the three cycleState kinds
+ * below already render. Until then `logs` defaults to [] and the tile
+ * honestly resolves to 'no-data'. No fetch happens here, so ChartContainer
+ * stays in its default 'ready' status: per the 4.9 rule, 'empty' means
+ * 401/no session, and a successful-but-dataless render is the component's
+ * own no-data state.
+ */
+function PeriodMeterTile({
+  logs = [],
+  typicalCycleLength = null,
+}: {
+  logs?: PeriodLog[];
+  typicalCycleLength?: number | null;
+}) {
+  const state = cycleState(logs, localTodayISO(), typicalCycleLength);
+  // TODO(design.md §4 limitation #6): once real journal data flows in, surface
+  // the inference caveat in the UI — episode starts are inferred from daily
+  // checkboxes, so a >3-day spotting gap inside one real period reads as a new
+  // cycle. Don't ship silent inference; the manual "mark as new cycle start"
+  // override remains a Phase 5+ enhancement.
+  return (
+    <ChartContainer className="bento-period" title="Cycle day">
+      {state.kind === 'no-data' && (
+        // The 28-dot track is DECORATIVE continuity with the old placeholder
+        // strip — every dot is track-colored, nothing is filled, and no cycle
+        // length is being claimed; the desc/caption say why there's no data.
+        <DotMatrix
+          total={28}
+          filled={0}
+          noData
+          title="Cycle day"
+          desc="No data yet: cycle day comes from the daily journal's Period field, which isn't built yet (Phase 5)."
+          valueLabel="—"
+          caption="no data yet — the Phase 5 journal isn't built"
+        />
+      )}
+      {state.kind === 'day-only' && (
+        // A start date but no cycle length (no second episode, no user-reported
+        // value): text only. Never an assumed 28-dot denominator (user
+        // decision 2026-07-18 — Phase 5 asks for typical length once, on the
+        // first logged period).
+        <p className="dot-matrix-value">Day {state.dayOfCycle}</p>
+      )}
+      {state.kind === 'full' && (
+        <DotMatrix
+          total={state.cycleLength}
+          filled={state.dayOfCycle}
+          title="Cycle day"
+          desc={`Day ${state.dayOfCycle} of ${
+            state.lengthSource === 'estimated' ? 'an estimated' : 'your reported'
+          } ${state.cycleLength}-day cycle.`}
+          valueLabel={
+            state.dayOfCycle > state.cycleLength
+              ? `Day ${state.dayOfCycle} of ${
+                  state.lengthSource === 'estimated' ? 'an estimated' : 'your reported'
+                } ${state.cycleLength}-day cycle`
+              : `Day ${state.dayOfCycle} of ${state.cycleLength}`
+          }
+        />
+      )}
+    </ChartContainer>
+  );
+}
+
 /** Read whoop_error[...] params that /api/callback may have appended to the URL. */
 function readOAuthError(): OAuthError | null {
   const params = new URLSearchParams(window.location.search);
@@ -430,17 +507,7 @@ function App() {
         </Card>
 
         <section className="bento-grid" aria-label="Charts">
-          <ChartContainer className="bento-period" title="Cycle day —" bodyHeight={23}>
-            <div
-              className="period-bar"
-              role="img"
-              aria-label="Cycle progress placeholder — no data yet"
-            >
-              {Array.from({ length: 28 }, (_, i) => (
-                <span key={i} className={i < 7 ? 'period-seg period-seg-active' : 'period-seg'} />
-              ))}
-            </div>
-          </ChartContainer>
+          <PeriodMeterTile />
 
           <ChartContainer
             className="bento-journal"

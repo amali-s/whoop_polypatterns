@@ -1,6 +1,80 @@
 # Project state
 
-## Roadmap status (Task 4.9 — recovery & strain progress rings) — ✅ COMPLETE (mock-verified) (2026-07-14)
+## Roadmap status (Task 4.10 — period meter, dot-matrix cycle-day bar) — ✅ COMPONENT + LOGIC COMPLETE (no-data state browser-verified; NOT live-verifiable — no data source exists) (2026-07-18)
+
+**What's done**
+
+- **Three user decisions CONFIRMED (2026-07-18)**, superseding the 2026-07-14
+  "PROPOSAL, pending confirmation" language in ROADMAP.md/design.md §4:
+  (1) episode-gap threshold = **3 days**, strictly `> 3` (a 3-day gap
+  continues the episode), shipped as `EPISODE_GAP_DAYS = 3` and flagged
+  in-code as a chosen heuristic, not clinically derived; (2) typical cycle
+  length is **asked once, on the first logged period** (the ask is Phase 5's)
+  — never an assumed 28; absent a length the meter is text-only, no
+  denominator, no dot row; (3) component + logic + tests ship now, the tile
+  stays honestly empty until Phase 5 ships the journal's Period field.
+- **`src/lib/cycle.ts`** (new, pure, import-free): tri-state `PeriodLog`
+  (`null` = not logged ≠ `'no'`), `detectEpisodes` (explicit-`yes` days only;
+  `'no'`/null ignored identically so a missed logging day never splits a
+  period; always recomputes from FULL history so retroactive edits
+  merge/split/shift correctly), `estimateCycleLength` (mean start-to-start
+  gap; **null under 2 episodes**, callers must not substitute a default),
+  `cycleState` (`no-data` / `day-only` / `full` union; `dayOfCycle` counts
+  inclusively from the latest start, past the end of bleeding, unclamped past
+  the length; `lengthSource: 'estimated' | 'user-reported'`, estimate
+  preferred). Date math = UTC-normalized day numbers — local-midnight ms
+  division is DST-off-by-one (asserted in tests).
+- **`src/components/charts/DotMatrix.tsx`** (new, barrel-exported): plain SVG
+  circles positioned by index (no d3 `scaleBand` — a band scale over indices
+  is one expression; ProgressRing precedent). §5.2: `role="img"` +
+  `<title>`/`<desc>` via `aria-labelledby` (desc carries the one scalar
+  verbatim = rule-2 fallback), day number is real visible text, entrance fade
+  double-gated on reduced motion (JS `chartTransitionDuration` + charts.css).
+  Fill = `--color-chart-3` (confirmed shared skin-temp/period token), track =
+  `--color-border`. Overflow renders a full row, never extra dots — the
+  label/desc carry "Day 31 of an estimated 28-day cycle".
+- **`src/App.tsx`**: `PeriodMeterTile` replaces the static 28-span
+  placeholder; dead `.period-bar`/`.period-seg*` CSS removed from App.css
+  (4.9 precedent). Renders all three `cycleState` kinds, so the **Phase 5
+  seam is its `logs` / `typicalCycleLength` props**. ChartContainer stays
+  `ready` (4.9 rule: `empty` = 401/no session; dataless-but-successful is the
+  component's own no-data state). A marked TODO at the render site requires
+  surfacing the inference limitation (design.md §4 #6) in the UI once real
+  data flows.
+- **`scripts/test-cycle.mjs`** + `npm run test:cycle` (test-transforms
+  pattern: real module, synthetic fixtures, hand-computed expectations):
+  **38 checks, ALL PASS (2026-07-18)** — incl. the exact >3-vs-≥3 boundary,
+  null ≡ 'no' grouping, retroactive merge AND split, round(28.5)=29 with
+  'estimated' beating a reported 30, day 36-of-28 unclamped, and exact counts
+  across both DST transitions.
+- Gates: `npm run lint`, `tsc -b`, `typecheck:api`, `format:check`,
+  `test:cycle` all pass (2026-07-18).
+
+**What's verified**
+
+- Unit level: everything in `cycle.ts`, exhaustively (above).
+- Browser level (dev preview, 2026-07-18): the **no-data state only** —
+  28-dot all-track decorative row, muted "—", caption "no data yet — the
+  Phase 5 journal isn't built", `aria-labelledby` resolving to title + honest
+  desc, zero console errors. (Plain `vite dev`, no `/api` — irrelevant here,
+  the tile fetches nothing.)
+
+**Still open / flagged**
+
+- **NOT live-verified, and cannot be:** no data source exists (the journal is
+  Phase 5.1), so `day-only` and `full` have never rendered outside unit
+  tests. Verify against real journal data when Phase 5 ships; only then does
+  this task's residual close. The checkmark means "logic tested + tile
+  honest," not "meter works."
+- Phase 5.1 inherits two hard constraints (recorded there): the tri-state
+  Period field, and the ask-once typical-cycle-length question wired to
+  `PeriodMeterTile`'s prop.
+- Limitation #6 (design.md §4): episode starts are inferred from daily
+  checkboxes — a >3-day spotting gap inside one real period reads as a new
+  cycle. Must be surfaced in the UI when the meter goes live (in-code TODO);
+  the manual "mark as new cycle start" override stays a Phase 5+ enhancement.
+
+## Roadmap status (Task 4.9 — recovery & strain progress rings) — ✅ COMPLETE (mock-verified + LIVE-VERIFIED) (2026-07-14, live check 2026-07-18)
 
 **What's done**
 
@@ -30,13 +104,52 @@
   red 28%, strain 6.3, strain-noData; `aria-labelledby` resolution checked
   in-browser), mock fully reverted afterward.
 
+**LIVE-VERIFIED on Vercel prod (2026-07-18, user-confirmed)**
+
+- Both rings render real values from real `/api/daily-series` data against a
+  synced account — closing 4.9's only blocking residual (the "live-unverified"
+  item carried since 2026-07-14). The 4.1 initial-state residual is now closed
+  by the same check.
+- **Root cause of the empty-state scare (worth keeping — it was never a chart
+  bug):** the rings sat in `noData` on prod because Supabase held ZERO rows for
+  the member. `api/sync.ts` `isAuthorized()` fails closed when `CRON_SECRET` is
+  unset — it logs and returns 401 before any work — and `CRON_SECRET` had never
+  been set on the Vercel project. Every nightly cron since deploy was rejected,
+  so the cache was never filled. `/api/daily-series` still returned a clean 200
+  with all-null points (null discipline working as designed), which is exactly
+  why the tiles showed `noData` rather than `empty`/`error` — the state machine
+  was correct throughout and pointed straight at the real fault. Fixed by
+  generating a secret (`openssl rand -base64 32`), adding it to Vercel
+  **Production**, redeploying, and seeding the cache with
+  `npm run sync:whoop -- --days 30`.
+- **Diagnostic worth reusing:** ring state discriminates the failure mode for
+  free — `empty` ⇒ 401/no session; `error` ⇒ non-OK response (incl. 503 waking
+  or a missing service-role key); `noData` ⇒ the request SUCCEEDED and the data
+  is genuinely absent or unscored. Read the tile before reading the logs.
+
 **Still open / flagged**
 
-- Live-unverified: rings not yet seen against real `/api/daily-series` data
-  (needs `vercel dev` or prod with a synced account) — same residual as
-  4.1's initial state.
-- Yellow zone (34–66) exercised only through the shared `recoveryZone()`
-  code path in the mock passes for green/red, not screenshotted separately.
+- Yellow zone (34–66) still exercised only through the shared `recoveryZone()`
+  code path — the mock covered green/red and the live check landed outside the
+  yellow band. Not screenshotted separately; low risk (one shared function).
+- **Doc gap that caused this — CLOSED (2026-07-18):** `CRON_SECRET` was absent
+  from `vercel-env-setup.md` and `.env.example`, appearing in ROADMAP 2.5 /
+  this file only as a hypothetical failure mode, never as a setup action. Now
+  fixed: `vercel-env-setup.md` is retitled "The 8 environment variables" with
+  `CRON_SECRET` as row 8 plus a generation/scoping/verification section, and
+  `.env.example` gains a documented `CRON_SECRET` entry flagging the
+  fails-closed-and-silently behavior. The 2.5 cron check was promoted from
+  "worth a periodic glance (not blocking)" to a REQUIRED standing verification
+  (see that section).
+- **Also unverified as a consequence:** because the cron never ran, the 2.5
+  reasoning for skipping a keep-warm cron ("the daily sync is real DB activity,
+  so the free-tier project can't pause") rested on a false premise for the
+  whole period. The premise is true again now that sync runs; no code change
+  needed, but the pause risk was live and unmonitored until 2026-07-18.
+- `api/callback.ts` still does NOT trigger a sync on connect, so a freshly
+  connected account shows an empty dashboard until the next 08:00 UTC cron.
+  Not a 4.9 defect, but it is the same empty-state symptom from a different
+  cause — worth closing before anyone else connects an account.
 
 ## Roadmap status (Task 4.1 — stacked bar chart, sleep stages) — ✅ COMPLETE (sandbox-verified + partially live-verified) (2026-07-09, live check 2026-07-13)
 
@@ -736,11 +849,24 @@ retry loop; a LOGGED-OUT user connecting gets the banner on the OAuth bounce-bac
 - [x] Commits pushed to `origin/main` (this machine has GitHub credentials;
       pushing `main` auto-deployed Vercel prod).
 
-**Still worth a periodic glance (not blocking)**
+**Standing verification — REQUIRED, not optional (promoted 2026-07-18)**
 
-- Confirm in the Vercel deploy logs (any morning) that the daily `/api/sync`
-  cron is actually running — it is the thing keeping the project from pausing,
-  which is why no second keep-warm cron was added.
+- **Confirm the daily `/api/sync` cron actually ran.** Vercel → project →
+  **Logs**, filter to `/api/sync` (the cron invocation log is a SEPARATE view
+  from your app request logs — a clean app log tells you nothing about it). A
+  healthy run prints the counts-only line `sync: members=1 ... cycles=N/N`.
+- This was filed as "worth a periodic glance (not blocking)" from 2026-07-05
+  until 2026-07-18 and, in practice, was never performed — during which the
+  cron 401'd on EVERY run because `CRON_SECRET` had never been set, Supabase
+  stayed empty, and the whole Phase 4 chart surface rendered empty states on
+  prod. The check is cheap and it is the only signal that the pipeline is
+  alive; treat a missing cron log as a P1, not a curiosity. (Full root cause in
+  the Task 4.9 section at the top of this file.)
+- Two things ride on this run, so a silent failure costs double: the data
+  itself, and the DB activity that keeps the free-tier Supabase project inside
+  its 7-day pause window. The argument above for skipping a second keep-warm
+  cron is only sound **while sync is actually running** — it presumes a working
+  cron rather than proving one.
 
 ## Roadmap status (Phase 2.4 — Supabase typed columns)
 

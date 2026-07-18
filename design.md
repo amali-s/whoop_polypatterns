@@ -324,10 +324,11 @@ specifies a desktop/tablet variant).
   as ready-state children (deliberately NOT `status="empty"`, so the
   tile-specific Figma placeholder visuals survive; Phase 4 flips status from
   real fetch state). Real chart rendering + data wiring is **Phase 4**,
-  specifically: recovery/strain donuts → real circular progress (**TODO
-  4.9**), period meter → real dot-matrix cycle-day bar, self-reported via the
-  Phase 5 journal's "Period" field rather than WHOOP data — so this tile
-  depends on Phase 5 shipping (**TODO 4.10**, see §4), skin-temp sparkline →
+  specifically: recovery/strain donuts → real circular progress (**✅ 4.9**),
+  period meter → real dot-matrix cycle-day bar, self-reported via the
+  Phase 5 journal's "Period" field rather than WHOOP data (**✅ 4.10
+  component + logic shipped; the tile honestly renders no-data until Phase 5
+  ships the field** — see §4), skin-temp sparkline →
   real line chart (**TODO 4.11**), calories/sleep stat tiles → stat cards
   with a monthly-average delta indicator (**TODO 4.12**). These four were
   absent from the original Phase 4 checklist (only the six D3 chart types
@@ -388,9 +389,12 @@ These reuse the LOCKED §1 chart palette and the §5.2 accessibility contract
 (numeric labels alongside any color coding, since `--color-chart-1/-4/-6` and
 the recovery/strain zone colors are flagged as non-text-safe in §5.1).
 
-### Period-meter cycle-start-detection rule — PROPOSAL (2026-07-14), pending confirmation
+### Period-meter cycle-start-detection rule — CONFIRMED (2026-07-18)
 
-The Phase 5 journal only logs a per-day "Period" field (proposed tri-state:
+> User-confirmed 2026-07-18 (was a 2026-07-14 proposal). Implemented in
+> `src/lib/cycle.ts` (Task 4.10), unit-tested by `scripts/test-cycle.mjs`.
+
+The Phase 5 journal only logs a per-day "Period" field (tri-state:
 `yes` / `no` / `not logged` — see the Phase 5.1 constraint in ROADMAP.md); it
 does not ask the user to mark "this is day 1." Day 3 of an ongoing period and
 day 1 of a new one look identical in the raw data, so the cycle-day
@@ -400,21 +404,32 @@ computation has to infer the boundary:
    `not logged` are excluded, not treated as breaking evidence on their own.
 2. Group consecutive `yes` days into **episodes**: a `yes` day starts a new
    episode only if the gap since the previous `yes` day exceeds a threshold
-   (**proposed default: 3 days** — tolerates a missed logging day or two
-   inside a real period without misreading it as a new cycle; stays well
-   below any realistic full cycle length). **Not derived from a clinical
-   source — a heuristic, flagged for confirmation or for making it a
-   user-adjustable setting.**
+   (**confirmed: 3 days**, strictly greater-than — a 3-day gap continues the
+   episode; shipped as `EPISODE_GAP_DAYS = 3` in `src/lib/cycle.ts`. The
+   value tolerates a missed logging day or two inside a real period without
+   misreading it as a new cycle and stays well below any realistic full
+   cycle length. **A chosen heuristic, not derived from a clinical source** —
+   noted in-code; a user-adjustable setting remains an option if it proves
+   wrong in practice).
 3. Cycle start = each episode's first `yes` day. Day-of-cycle shown =
    `today − latest episode's start date + 1`; keeps counting after the
    period ends, since a cycle is longer than the bleeding days.
 4. Backfilled/edited journal entries require recomputing episodes from full
    history, not incremental appends — a late edit can merge, split, or shift
    boundaries.
-5. **Known limitation, to disclose in the UI:** inferred boundaries can
-   misread edge cases (e.g., spotting with a >3-day internal gap) as a new
-   cycle. A manual "mark as new cycle" override is a possible Phase 5+
-   enhancement if this proves unreliable — not required to ship 4.10/5.x.
+5. **Cycle length is asked, never assumed (confirmed 2026-07-18):** Phase 5
+   asks the user their typical cycle length once, on their first logged
+   period — the app never defaults to 28. Until a length exists
+   (user-reported, or estimated as the mean start-to-start gap once ≥2
+   episodes exist — the estimate then takes precedence, and `lengthSource`
+   labels which is shown), the meter renders text-only: day number, no
+   denominator, no dot row.
+6. **Known limitation, to disclose in the UI:** inferred boundaries can
+   misread edge cases (e.g., spotting with a >3-day internal gap inside one
+   real period) as a new cycle. A manual "mark as new cycle start" override
+   remains a Phase 5+ enhancement if this proves unreliable — not required
+   to ship 4.10/5.x. A TODO at `PeriodMeterTile`'s render site requires
+   surfacing this in the UI once real data flows.
 
 ### Sleep-stage color mapping (chart 4.1) — **PROPOSAL (2026-07-09), pending confirmation**
 
