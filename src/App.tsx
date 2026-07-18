@@ -9,6 +9,7 @@ import {
   DotMatrix,
   ProgressRing,
   RecoveryStrainComboChart,
+  Sparkline,
   StackedBarChart,
   type StackedBarSeriesKey,
 } from './components/charts';
@@ -104,10 +105,11 @@ const RECOVERY_STRAIN_DAYS = 30;
 /**
  * Full-width combo-chart row below the bento grid (same "Layout gap" decision
  * as SleepStagesTile — chart 4.2 has no bento slot). Drives ChartContainer's
- * status from the fetch state.
+ * status from the fetch state. Receives the shared 30-day series from App
+ * (4.11 lifted the fetch — SkinTempTile reads the same rows, and a per-tile
+ * hook here would double-fetch them, the 4.9 rule).
  */
-function RecoveryStrainTile() {
-  const series = useDailySeries(RECOVERY_STRAIN_DAYS);
+function RecoveryStrainTile({ series }: { series: DailySeriesState }) {
   const points = series.status === 'ready' ? series.points : [];
   // buildDailySeries emits a point for EVERY day in the window (all-null on
   // dataless days), so unlike sleep-stages `points.length === 0` never means
@@ -134,6 +136,46 @@ function RecoveryStrainTile() {
         data={points}
         title="Recovery vs. strain"
         tableCaption={`Daily recovery percent and day strain, last ${RECOVERY_STRAIN_DAYS} days`}
+      />
+    </ChartContainer>
+  );
+}
+
+// --- Phase 4.11 — skin-temp sparkline tile ---------------------------------
+
+/**
+ * Bento skin-temp tile (§4: `skin_temp_celsius`, chart-3 sparkline). Shares
+ * App's single 30-day fetch with RecoveryStrainTile (the 4.9 rule against
+ * per-tile duplicate fetches of identical rows).
+ *
+ * Status mapping deliberately DIVERGES from RecoveryStrainTile's: ready with
+ * all-null skin temps is NOT mapped to 'empty' — null is the NORMAL case on
+ * pre-4.0 hardware (the strap has no temp sensor), and 'empty' would read as
+ * a broken connection. It falls through to the Sparkline's own noData state,
+ * whose caption names the likely reason. Per the 4.9 rule, 'empty' means
+ * 401/no session only. (buildDailySeries emits a point for every day in the
+ * window, so `points.length === 0` never means "no data" either.)
+ */
+function SkinTempTile({ series }: { series: DailySeriesState }) {
+  const points = series.status === 'ready' ? series.points : [];
+  const status: ChartStatus = series.status === 'unauthenticated' ? 'empty' : series.status;
+  // No bodyHeight on the container: the Sparkline owns its 64px plot height
+  // plus the value line, per ChartContainer's "Phase 4's responsive D3 charts
+  // drop the prop" guidance.
+  return (
+    <ChartContainer
+      className="bento-skintemp"
+      title="Skin temp over time"
+      status={status}
+      loadingLabel="Loading your skin temperature…"
+      emptyMessage="Connect your WHOOP account to see your skin temperature."
+      errorMessage="Couldn’t load skin temperature. Refresh to try again."
+    >
+      <Sparkline
+        data={points}
+        title="Skin temp over time"
+        tableCaption={`Daily skin temperature in °C, last ${RECOVERY_STRAIN_DAYS} days`}
+        noDataCaption={`no readings in the last ${RECOVERY_STRAIN_DAYS} days — skin temp needs WHOOP 4.0 or newer`}
       />
     </ChartContainer>
   );
@@ -211,7 +253,10 @@ function ringStatus(series: DailySeriesState): ChartStatus {
  * Bento recovery tile (§4: `recovery_score` 0–100, zone-colored ring).
  * Both ring tiles receive the SAME series from one useDailySeries call in
  * App — they read different fields of identical rows, and per-tile hooks
- * (the SleepStagesTile pattern) would issue two identical fetches.
+ * (the SleepStagesTile pattern) would issue two identical fetches. The same
+ * rule drives App's second, 30-day fetch, shared by RecoveryStrainTile and
+ * SkinTempTile (4.11); RING_DAYS stays a separate 7-day window because the
+ * rings genuinely need less lookback.
  */
 function RecoveryRingTile({ series }: { series: DailySeriesState }) {
   const latest =
@@ -377,6 +422,9 @@ function App() {
   const [oauthError, setOAuthError] = useState<OAuthError | null>(readOAuthError);
   // One fetch feeds both ring tiles (see RecoveryRingTile's comment).
   const ringSeries = useDailySeries(RING_DAYS);
+  // One 30-day fetch feeds RecoveryStrainTile AND SkinTempTile — same
+  // no-duplicate-fetch rule, different window than the rings.
+  const dailySeries = useDailySeries(RECOVERY_STRAIN_DAYS);
 
   // Clean the whoop_error[...] params so a refresh doesn't re-show the banner.
   useEffect(() => {
@@ -543,13 +591,7 @@ function App() {
 
           <StrainRingTile series={ringSeries} />
 
-          <ChartContainer className="bento-skintemp" title="Skin temp over time" bodyHeight={64}>
-            <div
-              className="sparkline-placeholder"
-              role="img"
-              aria-label="Skin temp trend, no data yet"
-            />
-          </ChartContainer>
+          <SkinTempTile series={dailySeries} />
 
           <ChartContainer
             className="bento-hrv"
@@ -601,7 +643,7 @@ function App() {
         </section>
 
         <SleepStagesTile />
-        <RecoveryStrainTile />
+        <RecoveryStrainTile series={dailySeries} />
       </main>
     </>
   );

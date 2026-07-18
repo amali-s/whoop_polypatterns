@@ -202,15 +202,6 @@
   color: var(--color-muted);
 }
 
-/* --- Skin-temp sparkline placeholder --- */
-.sparkline-placeholder {
-  height: 100%;
-  box-sizing: border-box;
-  border-radius: var(--radius-md);
-  background: linear-gradient(180deg, rgba(217, 208, 89, 0.35), rgba(217, 208, 89, 0.05));
-  border: 1px dashed var(--color-border);
-}
-
 /* --- HRV / RHR combo chart placeholders + legend swatches --- */
 .combo-chart-placeholder {
   height: 100%;

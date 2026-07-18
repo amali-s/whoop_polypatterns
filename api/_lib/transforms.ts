@@ -123,6 +123,11 @@ export interface DailyMetricPoint {
   recoveryScore: number | null;
   hrvRmssdMilli: number | null;
   restingHeartRate: number | null;
+  /**
+   * WHOOP 4.0+ hardware only (0003_typed_columns.sql) — older straps never
+   * report it, so long all-null runs are EXPECTED here, not a data bug.
+   */
+  skinTempCelsius: number | null;
   sleepPerformancePercentage: number | null;
   totalSleepMilli: number | null;
   workoutStrainSum: number | null;
@@ -304,6 +309,7 @@ export function buildDailySeries(
       recoveryScore: rec ? scored(rec.score_state, rec.recovery_score) : null,
       hrvRmssdMilli: rec ? scored(rec.score_state, rec.hrv_rmssd_milli) : null,
       restingHeartRate: rec ? scored(rec.score_state, rec.resting_heart_rate) : null,
+      skinTempCelsius: rec ? scored(rec.score_state, rec.skin_temp_celsius) : null,
       sleepPerformancePercentage: slp
         ? scored(slp.score_state, slp.sleep_performance_percentage)
         : null,

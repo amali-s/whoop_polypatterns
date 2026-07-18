@@ -54,14 +54,21 @@ const cycle = (day, score_state, strain) => ({
   end: null,
   timezone_offset: null,
 });
-const recovery = (day, score_state, recovery_score, hrv_rmssd_milli, resting_heart_rate) => ({
+const recovery = (
+  day,
+  score_state,
+  recovery_score,
+  hrv_rmssd_milli,
+  resting_heart_rate,
+  skin_temp_celsius = null,
+) => ({
   day,
   score_state,
   recovery_score,
   resting_heart_rate,
   hrv_rmssd_milli,
   spo2_percentage: null,
-  skin_temp_celsius: null,
+  skin_temp_celsius,
   user_calibrating: null,
 });
 const sleep = (day, score_state, { perf, awake, light, deep, rem, nap = false } = {}) => ({
@@ -109,8 +116,10 @@ const cycles = [
   cycle('2026-06-05', 'SCORED', 15.0),
 ];
 const recoveries = [
-  recovery('2026-06-01', 'SCORED', 66, 45.2, 55),
-  recovery('2026-06-04', 'SCORED', 40, 30.0, 60),
+  recovery('2026-06-01', 'SCORED', 66, 45.2, 55, 33.9), // SCORED with a skin-temp reading
+  // PENDING row carrying a STALE skin temp — the scored() gate must null it.
+  recovery('2026-06-02', 'PENDING_SCORE', null, null, null, 34.5),
+  recovery('2026-06-04', 'SCORED', 40, 30.0, 60), // SCORED, no reading (pre-4.0 hardware)
   recovery('2026-06-05', 'SCORED', 80, 60.0, 50),
 ];
 // 06-01 awake = 1_230_000 ms = 20.5 min → rounds to 21 (round half-up).
@@ -163,15 +172,24 @@ check('06-01 strain 12.5', d1.strain === 12.5);
 check('06-01 recoveryScore 66', d1.recoveryScore === 66);
 check('06-01 hrvRmssdMilli 45.2', approx(d1.hrvRmssdMilli, 45.2));
 check('06-01 restingHeartRate 55', d1.restingHeartRate === 55);
+check(
+  '06-01 skinTempCelsius 33.9 (SCORED row carries the reading)',
+  approx(d1.skinTempCelsius, 33.9),
+);
 check('06-01 sleepPerformancePercentage 90', d1.sleepPerformancePercentage === 90);
 check('06-01 totalSleepMilli 19_800_000 (derived from stages)', d1.totalSleepMilli === 19_800_000);
 check('06-01 workoutStrainSum 4.0', approx(d1.workoutStrainSum, 4.0));
 check('06-01 workoutCount 1', d1.workoutCount === 1);
 
-// 06-02 — cycle PENDING_SCORE; strain MUST be null (not 0), rest null (no rows).
+// 06-02 — cycle AND recovery PENDING_SCORE; every score-derived field MUST be
+// null (not 0), even where the row carries a stale value.
 const d2 = byDay['2026-06-02'];
 check('06-02 strain null (PENDING, not 0)', d2.strain === null);
 check('06-02 recoveryScore null', d2.recoveryScore === null);
+check(
+  '06-02 skinTempCelsius null (stale 34.5 on a PENDING row must not leak)',
+  d2.skinTempCelsius === null,
+);
 check(
   '06-02 sleepPerformancePercentage null (unscored night)',
   d2.sleepPerformancePercentage === null,
@@ -191,6 +209,7 @@ check(
     d3.recoveryScore === null &&
     d3.hrvRmssdMilli === null &&
     d3.restingHeartRate === null &&
+    d3.skinTempCelsius === null &&
     d3.sleepPerformancePercentage === null &&
     d3.totalSleepMilli === null &&
     d3.workoutStrainSum === null &&
@@ -201,6 +220,10 @@ check(
 const d4 = byDay['2026-06-04'];
 check('06-04 strain 8.0', d4.strain === 8.0);
 check('06-04 recoveryScore 40', d4.recoveryScore === 40);
+check(
+  '06-04 skinTempCelsius null (SCORED row without a reading — pre-4.0 strap)',
+  d4.skinTempCelsius === null,
+);
 check(
   '06-04 sleepPerformancePercentage 75 (main sleep, not the nap)',
   d4.sleepPerformancePercentage === 75,
@@ -274,6 +297,7 @@ const clean = [10, 12, 14, 16, 18].map((v, i) => ({
   recoveryScore: null,
   hrvRmssdMilli: null,
   restingHeartRate: null,
+  skinTempCelsius: null,
   sleepPerformancePercentage: null,
   totalSleepMilli: null,
   workoutStrainSum: null,
@@ -307,6 +331,7 @@ const gapped = [10, null, 14, 16, null].map((v, i) => ({
   recoveryScore: null,
   hrvRmssdMilli: v, // baseline over HRV this time, to prove the accessor is generic
   restingHeartRate: null,
+  skinTempCelsius: null,
   sleepPerformancePercentage: null,
   totalSleepMilli: null,
   workoutStrainSum: null,

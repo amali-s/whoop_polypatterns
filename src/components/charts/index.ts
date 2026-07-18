@@ -21,4 +21,6 @@ export { ProgressRing } from './ProgressRing';
 export type { ProgressRingProps } from './ProgressRing';
 export { DotMatrix } from './DotMatrix';
 export type { DotMatrixProps } from './DotMatrix';
+export { Sparkline } from './Sparkline';
+export type { SparklineProps } from './Sparkline';
 import './charts.css';

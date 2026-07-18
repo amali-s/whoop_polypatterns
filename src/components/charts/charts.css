@@ -158,6 +158,35 @@
   color: var(--color-muted);
 }
 
+/* Phase 4.11 — skin-temp sparkline (bento tile). Chrome-free plot with the
+ * latest reading as real text below it. */
+.sparkline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+/* Real text, never chart-colored (§5.2 rule 4; §5.1: chart hues are
+ * fills-only). */
+.sparkline-value {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.sparkline-value-muted {
+  color: var(--color-muted);
+}
+
+.sparkline-caption {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
 /* §5.2 rule 5, CSS side of the double gate (JS side: chartTransitionDuration
  * renders the final dashoffset immediately). */
 @media (prefers-reduced-motion: reduce) {
@@ -166,6 +195,11 @@
   }
 
   .dot-matrix-dot {
+    transition: none !important;
+  }
+
+  .sparkline-line,
+  .sparkline-latest-dot {
     transition: none !important;
   }
 }
