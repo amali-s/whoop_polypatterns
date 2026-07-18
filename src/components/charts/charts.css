@@ -93,3 +93,40 @@
   position: relative;
   width: 100%;
 }
+
+/* Phase 4.9 — recovery/strain progress rings. Centered in the tile's flex
+ * column (same slot the .stat-donut placeholder occupied). */
+.progress-ring {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Real text, never zone-colored (§5.1: --color-positive/-warning are
+ * fills-only; §5.2 rule 4: value must not rely on the arc hue). */
+.progress-ring-value {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  fill: var(--color-text);
+}
+
+.progress-ring-value-muted {
+  fill: var(--color-muted);
+}
+
+.progress-ring-caption {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+/* §5.2 rule 5, CSS side of the double gate (JS side: chartTransitionDuration
+ * renders the final dashoffset immediately). */
+@media (prefers-reduced-motion: reduce) {
+  .progress-ring-progress {
+    transition: none !important;
+  }
+}

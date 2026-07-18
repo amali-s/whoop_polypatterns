@@ -6,13 +6,15 @@ import { Button } from './components/Button';
 import { ChartContainer, type ChartStatus } from './components/ChartContainer';
 import { LoadingState, ErrorState } from './components/states';
 import {
+  ProgressRing,
   RecoveryStrainComboChart,
   StackedBarChart,
   type StackedBarSeriesKey,
 } from './components/charts';
 import { useSleepStages } from './hooks/useSleepStages';
-import { useDailySeries } from './hooks/useDailySeries';
-import type { SleepStageBreakdownPoint } from '../api/_lib/transforms';
+import { useDailySeries, type DailySeriesState } from './hooks/useDailySeries';
+import type { DailyMetricPoint, SleepStageBreakdownPoint } from '../api/_lib/transforms';
+import { utcFormat } from 'd3-time-format';
 
 // A WHOOP provider error forwarded by /api/callback via query params.
 interface OAuthError {
@@ -135,6 +137,135 @@ function RecoveryStrainTile() {
   );
 }
 
+// --- Phase 4.9 — recovery/strain progress-ring tiles -----------------------
+
+/**
+ * Window for the ring tiles' shared fetch. The rings show a single "latest
+ * scored day", so a week is plenty of lookback (an unscored/in-progress
+ * cycle means today is null and yesterday carries the value).
+ */
+const RING_DAYS = 7;
+
+/**
+ * WHOOP recovery zones — VERIFIED against the official developer docs,
+ * https://developer.whoop.com/docs/whoop-101/ (fetched 2026-07-14):
+ * "GREEN 67-100%", "YELLOW 34-66%", "RED 0-33%". Zone hues are the §1
+ * fill-safe UI tokens; they color the ring arc only, never text (§5.1 —
+ * --color-warning is 2.03:1 and --color-positive 3.10:1 on the card).
+ */
+const RECOVERY_ZONES = [
+  { min: 67, name: 'green', color: 'var(--color-positive)' },
+  { min: 34, name: 'yellow', color: 'var(--color-warning)' },
+  { min: 0, name: 'red', color: 'var(--color-negative)' },
+] as const;
+
+/** Strain's scale ceiling — 0–21 Borg scale, same whoop-101 doc as above. */
+const STRAIN_SCALE_MAX = 21;
+
+function recoveryZone(score: number) {
+  // score < 0 can't happen per the API contract, but the fallback keeps the
+  // return type non-nullable without a non-null assertion.
+  return RECOVERY_ZONES.find((zone) => score >= zone.min) ?? RECOVERY_ZONES[2];
+}
+
+const ringDayFormat = utcFormat('%B %-d, %Y');
+
+/** Format YYYY-MM-DD via a UTC formatter (no local-zone day shift). */
+function formatRingDay(day: string): string {
+  const date = new Date(day);
+  return Number.isNaN(date.getTime()) ? day : ringDayFormat(date);
+}
+
+/**
+ * Most recent point whose metric is non-null. buildDailySeries emits points
+ * ascending, one per day, all-null on dataless days — so scanning from the
+ * end lands on the latest SCORED day and skips a PENDING_SCORE/UNSCORABLE
+ * today automatically (the Phase 2 null discipline at work).
+ */
+function latestScored(
+  points: readonly DailyMetricPoint[],
+  metric: (p: DailyMetricPoint) => number | null,
+): { day: string; value: number } | null {
+  for (let i = points.length - 1; i >= 0; i--) {
+    const value = metric(points[i]);
+    if (value != null) {
+      return { day: points[i].day, value };
+    }
+  }
+  return null;
+}
+
+/**
+ * Fetch-state → ChartContainer status for the ring tiles. Unlike the
+ * full-width charts, `ready` with no scored day is NOT mapped to 'empty' —
+ * the ring renders its own noData state (bare track + "—"), mirroring the
+ * pre-4.9 placeholder.
+ */
+function ringStatus(series: DailySeriesState): ChartStatus {
+  return series.status === 'unauthenticated' ? 'empty' : series.status;
+}
+
+/**
+ * Bento recovery tile (§4: `recovery_score` 0–100, zone-colored ring).
+ * Both ring tiles receive the SAME series from one useDailySeries call in
+ * App — they read different fields of identical rows, and per-tile hooks
+ * (the SleepStagesTile pattern) would issue two identical fetches.
+ */
+function RecoveryRingTile({ series }: { series: DailySeriesState }) {
+  const latest =
+    series.status === 'ready' ? latestScored(series.points, (p) => p.recoveryScore) : null;
+  const zone = latest ? recoveryZone(latest.value) : null;
+  return (
+    <ChartContainer
+      className="bento-recovery"
+      title="Recovery"
+      status={ringStatus(series)}
+      loadingLabel="Loading your recovery…"
+      emptyMessage="Connect your WHOOP account to see your recovery."
+      errorMessage="Couldn’t load recovery. Refresh to try again."
+    >
+      {latest && zone ? (
+        <ProgressRing
+          fraction={latest.value / 100}
+          title="Recovery"
+          desc={`${Math.round(latest.value)} percent, ${zone.name} zone, ${formatRingDay(latest.day)}.`}
+          valueLabel={`${Math.round(latest.value)}%`}
+          progressColor={zone.color}
+        />
+      ) : (
+        <ProgressRing fraction={0} noData title="Recovery" desc="No data yet." valueLabel="—" />
+      )}
+    </ChartContainer>
+  );
+}
+
+/** Bento strain tile (§4: `strain` on WHOOP's 0–21 scale, chart-5 dark blue). */
+function StrainRingTile({ series }: { series: DailySeriesState }) {
+  const latest = series.status === 'ready' ? latestScored(series.points, (p) => p.strain) : null;
+  return (
+    <ChartContainer
+      className="bento-strain"
+      title="Strain"
+      status={ringStatus(series)}
+      loadingLabel="Loading your strain…"
+      emptyMessage="Connect your WHOOP account to see your strain."
+      errorMessage="Couldn’t load strain. Refresh to try again."
+    >
+      {latest ? (
+        <ProgressRing
+          fraction={latest.value / STRAIN_SCALE_MAX}
+          title="Strain"
+          desc={`${latest.value.toFixed(1)} of ${STRAIN_SCALE_MAX} day strain, ${formatRingDay(latest.day)}.`}
+          valueLabel={latest.value.toFixed(1)}
+          progressColor="var(--color-chart-5)"
+        />
+      ) : (
+        <ProgressRing fraction={0} noData title="Strain" desc="No data yet." valueLabel="—" />
+      )}
+    </ChartContainer>
+  );
+}
+
 /** Read whoop_error[...] params that /api/callback may have appended to the URL. */
 function readOAuthError(): OAuthError | null {
   const params = new URLSearchParams(window.location.search);
@@ -167,6 +298,8 @@ function App() {
   // Read any provider error straight from the URL on first render (no effect
   // setState). The effect below only strips the params from the address bar.
   const [oauthError, setOAuthError] = useState<OAuthError | null>(readOAuthError);
+  // One fetch feeds both ring tiles (see RecoveryRingTile's comment).
+  const ringSeries = useDailySeries(RING_DAYS);
 
   // Clean the whoop_error[...] params so a refresh doesn't re-show the banner.
   useEffect(() => {
@@ -329,15 +462,7 @@ function App() {
             </p>
           </ChartContainer>
 
-          <ChartContainer className="bento-recovery" title="Recovery">
-            <div
-              className="stat-donut stat-donut-recovery"
-              role="img"
-              aria-label="Recovery, no data yet"
-            >
-              <span className="stat-donut-value">—</span>
-            </div>
-          </ChartContainer>
+          <RecoveryRingTile series={ringSeries} />
 
           <ChartContainer className="bento-sleep" title="Sleep">
             <p className="stat-value">—:—hrs</p>
@@ -349,15 +474,7 @@ function App() {
             <p className="stat-trend">No data yet</p>
           </ChartContainer>
 
-          <ChartContainer className="bento-strain" title="Strain">
-            <div
-              className="stat-donut stat-donut-strain"
-              role="img"
-              aria-label="Strain, no data yet"
-            >
-              <span className="stat-donut-value">—</span>
-            </div>
-          </ChartContainer>
+          <StrainRingTile series={ringSeries} />
 
           <ChartContainer className="bento-skintemp" title="Skin temp over time" bodyHeight={64}>
             <div

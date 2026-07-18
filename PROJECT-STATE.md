@@ -1,6 +1,44 @@
 # Project state
 
-## Roadmap status (Task 4.1 — stacked bar chart, sleep stages) — ✅ COMPLETE (sandbox-verified; not run against live Supabase) (2026-07-09)
+## Roadmap status (Task 4.9 — recovery & strain progress rings) — ✅ COMPLETE (mock-verified) (2026-07-14)
+
+**What's done**
+
+- **`src/components/charts/ProgressRing.tsx`** (new, barrel-exported):
+  reusable single-value ring — SVG `<circle>` + `stroke-dasharray`/
+  `stroke-dashoffset` (no `d3-shape`; `offset = C × (1 − fraction)`,
+  fraction clamped defensively). §5.2: `role="img"` + `<title>`/`<desc>` via
+  `aria-labelledby` (desc = value + zone + scored day; for a single scalar
+  that IS the rule-2 text fallback), centered value is real SVG text in
+  `--color-text`, dashoffset entrance gated on reduced motion in JS
+  (`chartTransitionDuration`) and CSS. `noData` = bare track + muted "—" +
+  "no data yet" caption, honest desc.
+- **`src/App.tsx`**: `RecoveryRingTile` / `StrainRingTile` replace the
+  static donut placeholders; ONE shared `useDailySeries(7)` in `App` feeds
+  both (avoids a duplicate fetch of identical rows). Each tile takes its own
+  latest non-null day (recovery may lag strain by a day when today is
+  PENDING_SCORE — the null discipline handles it). 401 → `empty` with a
+  connect message; ready-but-unscored → ring `noData`, not `empty`.
+- **Recovery zones VERIFIED** against
+  https://developer.whoop.com/docs/whoop-101/ (2026-07-14): green 67–100%,
+  yellow 34–66%, red 0–33% (constants `RECOVERY_ZONES`, cited in-code);
+  same page confirms strain's 0–21 Borg scale. Zone hues = fill-safe UI
+  tokens; strain = `--color-chart-5` (§4 mapping). Dead `.stat-donut*`
+  CSS/markup removed.
+- Lint / `tsc -b` / `typecheck:api` / prettier pass. Visually verified via
+  the temporary vite dev-middleware mock of `/api/daily-series` (green 72%,
+  red 28%, strain 6.3, strain-noData; `aria-labelledby` resolution checked
+  in-browser), mock fully reverted afterward.
+
+**Still open / flagged**
+
+- Live-unverified: rings not yet seen against real `/api/daily-series` data
+  (needs `vercel dev` or prod with a synced account) — same residual as
+  4.1's initial state.
+- Yellow zone (34–66) exercised only through the shared `recoveryZone()`
+  code path in the mock passes for green/red, not screenshotted separately.
+
+## Roadmap status (Task 4.1 — stacked bar chart, sleep stages) — ✅ COMPLETE (sandbox-verified + partially live-verified) (2026-07-09, live check 2026-07-13)
 
 **What's done**
 
@@ -56,13 +94,14 @@ error | ready`. Type-only import of `SleepStageBreakdownPoint` from
 
 **What's still open / needs human action**
 
-- **NOT run against live Supabase/WHOOP** — this sandbox has no network path
-  to them. Verify manually: deploy (push `main`), open the dashboard while
-  connected, and confirm (a) the tile leaves 'loading' for 'ready' with real
-  bars, (b) an unscored/missing night shows a gap (not a zero bar), (c)
-  `GET /api/sleep-stages` returns points matching `npm run sync:whoop`'d rows
-  (first live proof of the 2.6 DTO ↔ DB-row compatibility), (d) the 401 →
-  "connect WHOOP" empty state in a logged-out browser.
+- **Live-verified on 2026-07-13 (user-confirmed, not re-checked by this
+  session):** (a) the tile leaves 'loading' for 'ready' with real bars against
+  live Supabase/WHOOP, and (c) `GET /api/sleep-stages` returns points matching
+  `npm run sync:whoop`'d rows — first live proof of the 2.6 DTO ↔ DB-row
+  compatibility.
+- **Still NOT verified live:** (b) an unscored/missing night shows a visible
+  gap (not a zero-height bar), and (d) the 401 → "connect WHOOP" empty state
+  in a logged-out browser. Confirm these before calling 4.1 fully closed.
 - **Confirm the §4 sleep-stage color mapping** (or redirect it) — flagged as
   a proposal; App.tsx `SLEEP_STAGE_KEYS` is the single place to change.
 - Tooltip positioning assumes the SVG renders at its measured width (true

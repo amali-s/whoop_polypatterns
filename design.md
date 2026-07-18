@@ -323,7 +323,15 @@ specifies a desktop/tablet variant).
   Card + ChartContainer (3.3)**, same grid areas, placeholder visuals passed
   as ready-state children (deliberately NOT `status="empty"`, so the
   tile-specific Figma placeholder visuals survive; Phase 4 flips status from
-  real fetch state). Real chart rendering + data wiring is **Phase 4**.
+  real fetch state). Real chart rendering + data wiring is **Phase 4**,
+  specifically: recovery/strain donuts → real circular progress (**TODO
+  4.9**), period meter → real dot-matrix cycle-day bar, self-reported via the
+  Phase 5 journal's "Period" field rather than WHOOP data — so this tile
+  depends on Phase 5 shipping (**TODO 4.10**, see §4), skin-temp sparkline →
+  real line chart (**TODO 4.11**), calories/sleep stat tiles → stat cards
+  with a monthly-average delta indicator (**TODO 4.12**). These four were
+  absent from the original Phase 4 checklist (only the six D3 chart types
+  below were listed) and were added 2026-07-14.
 - Daily journal tile — **explicit stub, now on ChartContainer (3.3)**: same
   visible "Stub — Phase 5" label (subtitle slot) and static rows; no real
   journal UI until Phase 5.
@@ -359,6 +367,54 @@ specifies a desktop/tablet variant).
 Candidate WHOOP v2 metrics to draw from: recovery %, HRV, resting heart rate,
 day strain, sleep performance, sleep duration/stages, respiratory rate — plus
 questionnaire self-reports. Confirm exact mapping (and time window) per chart.
+
+### Bento-tile visualizations (added 2026-07-14, Phase 4.9–4.12)
+
+> These four tile types exist in the confirmed Figma bento layout (§2/§3) as
+> static placeholders but were missing from the chart checklist above until
+> this update. Added per user request, cross-checked against the same Figma
+> frame (`BWF8m6iu8eQJqJghVUbsOQ`, node `86:71`) that §2's grid is built from.
+
+| Tile                | Visualization type                     | Confirmed mapping                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Recovery donut      | Circular progress ring                 | `recovery_score` (0–100%) from the latest `whoop_recovery` row, red/yellow/green zone coloring. **Cutoffs verified 2026-07-14 against https://developer.whoop.com/docs/whoop-101/: green 67–100%, yellow 34–66%, red 0–33%** (constants: `RECOVERY_ZONES` in `src/App.tsx`). Zone hues are the fill-safe §1 UI tokens `--color-positive`/`--color-warning`/`--color-negative` — arc fill only, never text (§5.1).                                                                                                                                                                                                                                                                                                                                                                           |
+| Strain donut        | Circular progress ring                 | `strain` (WHOOP 0–21 scale) from the latest `whoop_cycles` row, ring fraction = `strain / 21`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Period meter        | Dot-matrix cycle-day progress bar      | **Confirmed 2026-07-14: self-reported, not WHOOP API.** Verified against the live WHOOP v2 OpenAPI spec — no menstrual-cycle resource exists (full resource list: Activity ID Mapping, Partner, User, Cycle, Recovery, Sleep, Workout). **Entry point (revised 2026-07-14): the Phase 5 daily journal's existing "Period" field** (`journal-stub-list` in `src/App.tsx`), not a standalone input — so this tile depends on Phase 5 shipping before it can show real data. Cycle start is inferred from that daily field via an episode-detection algorithm — see the cycle-start-detection rule below — not from an explicit "day 1" action. The tile stays in its empty state until Phase 5's journal exists and the user has logged at least one period day. See ROADMAP.md 4.10 and 5.1. |
+| Skin-temp sparkline | Minimal line chart (no axes)           | `skin_temp_celsius` from `whoop_recovery`, trailing window (14 or 30 days — TBD).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Calories stat card  | Stat + monthly-average delta indicator | `kilojoule` from the day's `whoop_cycles` row, converted to kcal, vs. trailing-30-day mean.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Sleep stat card     | Stat + monthly-average delta indicator | Total sleep time from `whoop_sleep` (`total_in_bed_time_milli` − `total_awake_time_milli`, or sum of stage fields — definition TBD), vs. trailing-30-day mean.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+
+These reuse the LOCKED §1 chart palette and the §5.2 accessibility contract
+(numeric labels alongside any color coding, since `--color-chart-1/-4/-6` and
+the recovery/strain zone colors are flagged as non-text-safe in §5.1).
+
+### Period-meter cycle-start-detection rule — PROPOSAL (2026-07-14), pending confirmation
+
+The Phase 5 journal only logs a per-day "Period" field (proposed tri-state:
+`yes` / `no` / `not logged` — see the Phase 5.1 constraint in ROADMAP.md); it
+does not ask the user to mark "this is day 1." Day 3 of an ongoing period and
+day 1 of a new one look identical in the raw data, so the cycle-day
+computation has to infer the boundary:
+
+1. Take every day logged `yes`, sorted chronologically. Days that are `no` or
+   `not logged` are excluded, not treated as breaking evidence on their own.
+2. Group consecutive `yes` days into **episodes**: a `yes` day starts a new
+   episode only if the gap since the previous `yes` day exceeds a threshold
+   (**proposed default: 3 days** — tolerates a missed logging day or two
+   inside a real period without misreading it as a new cycle; stays well
+   below any realistic full cycle length). **Not derived from a clinical
+   source — a heuristic, flagged for confirmation or for making it a
+   user-adjustable setting.**
+3. Cycle start = each episode's first `yes` day. Day-of-cycle shown =
+   `today − latest episode's start date + 1`; keeps counting after the
+   period ends, since a cycle is longer than the bleeding days.
+4. Backfilled/edited journal entries require recomputing episodes from full
+   history, not incremental appends — a late edit can merge, split, or shift
+   boundaries.
+5. **Known limitation, to disclose in the UI:** inferred boundaries can
+   misread edge cases (e.g., spotting with a >3-day internal gap) as a new
+   cycle. A manual "mark as new cycle" override is a possible Phase 5+
+   enhancement if this proves unreliable — not required to ship 4.10/5.x.
 
 ### Sleep-stage color mapping (chart 4.1) — **PROPOSAL (2026-07-09), pending confirmation**
 
