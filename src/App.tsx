@@ -39,6 +39,25 @@ const STATUS_LABELS: Record<ConnectionState, string> = {
   disconnected: 'Not connected',
 };
 
+/** Outcome of a manual "Sync now" press (POST /api/sync-me). */
+type ManualSyncState =
+  | 'idle'
+  | 'syncing'
+  /** 429 — pressed again inside the endpoint's cooldown. */
+  | 'cooldown'
+  /** WHOOP rejected the stored token; the member must reconnect. */
+  | 'reauth'
+  | 'error';
+
+/** Button label for each manual-sync state. */
+const SYNC_LABELS: Record<ManualSyncState, string> = {
+  idle: 'Sync now',
+  syncing: 'Syncing…',
+  cooldown: 'Just synced',
+  reauth: 'Reconnect needed',
+  error: 'Sync failed — retry',
+};
+
 // Bento tile set — matches the confirmed Figma layout (file
 // BWF8m6iu8eQJqJghVUbsOQ, node 86:71) tile for tile: period meter, journal,
 // 4 stat/donut tiles, skin-temp sparkline, and the two HRV/RHR combo charts.
@@ -420,11 +439,51 @@ function App() {
   // Read any provider error straight from the URL on first render (no effect
   // setState). The effect below only strips the params from the address bar.
   const [oauthError, setOAuthError] = useState<OAuthError | null>(readOAuthError);
+  // Manual "Sync now" (see handleSyncNow). Kept in App because the button sits
+  // in the header, next to the connection chip it depends on.
+  const [syncState, setSyncState] = useState<ManualSyncState>('idle');
   // One fetch feeds both ring tiles (see RecoveryRingTile's comment).
   const ringSeries = useDailySeries(RING_DAYS);
   // One 30-day fetch feeds RecoveryStrainTile AND SkinTempTile — same
   // no-duplicate-fetch rule, different window than the rings.
   const dailySeries = useDailySeries(RECOVERY_STRAIN_DAYS);
+
+  /**
+   * Pull fresh WHOOP data on demand. The Vercel Hobby cron can only run once a
+   * day, and it runs before the previous night's cycle/sleep/recovery are
+   * SCORED, so without this the newest day stays empty until the next run.
+   *
+   * MUST be a fetch with method POST — /api/sync-me rejects GET on purpose
+   * (the session cookie is SameSite=Lax, so POST-only is what makes the
+   * endpoint CSRF-safe). Do not convert this to a <Button href>.
+   *
+   * On success we reload rather than refetch: useDailySeries/useSleepStages
+   * only fetch on mount, so a reload is the honest way to get every tile onto
+   * the new rows without inventing a refetch channel.
+   */
+  async function handleSyncNow(): Promise<void> {
+    setSyncState('syncing');
+    try {
+      const res = await fetch('/api/sync-me', { method: 'POST' });
+      if (res.status === 429) {
+        setSyncState('cooldown');
+        return;
+      }
+      if (!res.ok) {
+        setSyncState('error');
+        return;
+      }
+      const body = (await res.json()) as { ok?: boolean; reauthRequired?: boolean };
+      if (body.reauthRequired) {
+        setSyncState('reauth');
+        return;
+      }
+      window.location.reload();
+    } catch {
+      // Network failure or an unparseable body — surface it, never throw.
+      setSyncState('error');
+    }
+  }
 
   // Clean the whoop_error[...] params so a refresh doesn't re-show the banner.
   useEffect(() => {
@@ -478,9 +537,22 @@ function App() {
           {/* Same real navigations the auth card uses (302 flows, not
               fetches), driven by the same single connection state. */}
           {state === 'connected' && (
-            <Button variant="secondary" size="sm" href="/api/logout">
-              Disconnect
-            </Button>
+            <>
+              {/* A real fetch (POST), unlike the 302-navigation buttons beside
+                  it — see handleSyncNow for why POST is load-bearing. */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleSyncNow()}
+                disabled={syncState === 'syncing'}
+                aria-busy={syncState === 'syncing'}
+              >
+                {SYNC_LABELS[syncState]}
+              </Button>
+              <Button variant="secondary" size="sm" href="/api/logout">
+                Disconnect
+              </Button>
+            </>
           )}
           {state === 'disconnected' && (
             <Button variant="secondary" size="sm" href="/api/auth">
