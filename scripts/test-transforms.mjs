@@ -9,6 +9,8 @@
 // Coverage (per the Phase 2.6 brief):
 //   * a normal fully-scored day               → real values
 //   * a day with score_state !== 'SCORED'     → null, NOT 0
+//   * kilojoule: SCORED surfaces it, PENDING → null (not a stale leak),
+//     no cycle row at all → null
 //   * a day missing from every collection      → appears with all-null fields
 //   * a nap row                                → excluded from the stage breakdown
 //                                                (and from the daily sleep fields)
@@ -43,11 +45,11 @@ function approx(a, b) {
 
 // ── Fixture builders (synthetic data only) ───────────────────────────────────
 const MIN = 60_000; // ms per minute
-const cycle = (day, score_state, strain) => ({
+const cycle = (day, score_state, strain, kilojoule = null) => ({
   day,
   score_state,
   strain,
-  kilojoule: null,
+  kilojoule,
   average_heart_rate: null,
   max_heart_rate: null,
   start: null,
@@ -110,8 +112,11 @@ const workout = (day, score_state, strain) => ({
 // 06-03 MISSING from every collection; 06-04 two workouts + a nap; 06-05 scored
 // day whose only workout is unscored.
 const cycles = [
-  cycle('2026-06-01', 'SCORED', 12.5),
-  cycle('2026-06-02', 'PENDING_SCORE', null), // sync writes null strain when not SCORED
+  // 06-01 SCORED: strain 12.5 AND kilojoule 9000 both surface.
+  cycle('2026-06-01', 'SCORED', 12.5, 9000),
+  // 06-02 PENDING: sync writes null strain when not SCORED; the 8888 kJ here is
+  // a deliberate STALE value the scored() gate must null (never leak, never 0).
+  cycle('2026-06-02', 'PENDING_SCORE', null, 8888),
   cycle('2026-06-04', 'SCORED', 8.0),
   cycle('2026-06-05', 'SCORED', 15.0),
 ];
@@ -169,6 +174,7 @@ const byDay = Object.fromEntries(daily.map((p) => [p.day, p]));
 // 06-01 — the normal fully-scored day.
 const d1 = byDay['2026-06-01'];
 check('06-01 strain 12.5', d1.strain === 12.5);
+check('06-01 kilojoule 9000 (SCORED cycle surfaces its energy)', d1.kilojoule === 9000);
 check('06-01 recoveryScore 66', d1.recoveryScore === 66);
 check('06-01 hrvRmssdMilli 45.2', approx(d1.hrvRmssdMilli, 45.2));
 check('06-01 restingHeartRate 55', d1.restingHeartRate === 55);
@@ -185,6 +191,7 @@ check('06-01 workoutCount 1', d1.workoutCount === 1);
 // null (not 0), even where the row carries a stale value.
 const d2 = byDay['2026-06-02'];
 check('06-02 strain null (PENDING, not 0)', d2.strain === null);
+check('06-02 kilojoule null (stale 8888 on a PENDING cycle must not leak)', d2.kilojoule === null);
 check('06-02 recoveryScore null', d2.recoveryScore === null);
 check(
   '06-02 skinTempCelsius null (stale 34.5 on a PENDING row must not leak)',
@@ -206,6 +213,7 @@ check(
   '06-03 present with ALL fields null (a gap, not skipped)',
   d3 !== undefined &&
     d3.strain === null &&
+    d3.kilojoule === null &&
     d3.recoveryScore === null &&
     d3.hrvRmssdMilli === null &&
     d3.restingHeartRate === null &&

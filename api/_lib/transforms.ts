@@ -120,6 +120,14 @@ export interface DateRange {
 export interface DailyMetricPoint {
   day: string;
   strain: number | null;
+  /**
+   * Raw day energy expenditure in KILOJOULES (the whoop_cycles.kilojoule
+   * unit), gated on the cycle's SCORED state exactly like `strain`. Kept as kJ
+   * on purpose: the kJ→kcal conversion is a DISPLAY concern (see KJ_PER_KCAL in
+   * src/App.tsx), and this pure layer never invents a unit the DB doesn't
+   * store. Null on an unscored/missing cycle — never 0 (Phase 2 null discipline).
+   */
+  kilojoule: number | null;
   recoveryScore: number | null;
   hrvRmssdMilli: number | null;
   restingHeartRate: number | null;
@@ -306,6 +314,7 @@ export function buildDailySeries(
     return {
       day,
       strain: cycle ? scored(cycle.score_state, cycle.strain) : null,
+      kilojoule: cycle ? scored(cycle.score_state, cycle.kilojoule) : null,
       recoveryScore: rec ? scored(rec.score_state, rec.recovery_score) : null,
       hrvRmssdMilli: rec ? scored(rec.score_state, rec.hrv_rmssd_milli) : null,
       restingHeartRate: rec ? scored(rec.score_state, rec.resting_heart_rate) : null,

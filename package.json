@@ -17,6 +17,7 @@
     "test:callback": "node scripts/test-callback.mjs",
     "test:transforms": "node scripts/test-transforms.mjs",
     "test:cycle": "node scripts/test-cycle.mjs",
+    "test:stats": "node scripts/test-stats.mjs",
     "test:ratelimit": "node scripts/test-ratelimit.mjs",
     "test:whoop": "node --env-file=.env.local scripts/test-whoop.mjs",
     "sync:whoop": "node --env-file=.env.local scripts/sync-whoop.mjs",

@@ -23,4 +23,6 @@ export { DotMatrix } from './DotMatrix';
 export type { DotMatrixProps } from './DotMatrix';
 export { Sparkline } from './Sparkline';
 export type { SparklineProps } from './Sparkline';
+export { StatDelta } from './StatDelta';
+export type { StatDeltaProps } from './StatDelta';
 import './charts.css';

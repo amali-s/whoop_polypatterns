@@ -11,9 +11,11 @@ import {
   RecoveryStrainComboChart,
   Sparkline,
   StackedBarChart,
+  StatDelta,
   type StackedBarSeriesKey,
 } from './components/charts';
 import { cycleState, type PeriodLog } from './lib/cycle';
+import { baselineDelta } from './lib/stats';
 import { useSleepStages } from './hooks/useSleepStages';
 import { useDailySeries, type DailySeriesState } from './hooks/useDailySeries';
 import type { DailyMetricPoint, SleepStageBreakdownPoint } from '../api/_lib/transforms';
@@ -195,6 +197,153 @@ function SkinTempTile({ series }: { series: DailySeriesState }) {
         title="Skin temp over time"
         tableCaption={`Daily skin temperature in °C, last ${RECOVERY_STRAIN_DAYS} days`}
         noDataCaption={`no readings in the last ${RECOVERY_STRAIN_DAYS} days — skin temp needs WHOOP 4.0 or newer`}
+      />
+    </ChartContainer>
+  );
+}
+
+// --- Phase 4.12 — Calories & Sleep stat cards ------------------------------
+
+/**
+ * Baseline window for the stat-card deltas. REUSES App's shared 30-day fetch
+ * (RECOVERY_STRAIN_DAYS) — a second useDailySeries call over an identical
+ * window would violate the 4.9 no-duplicate-fetch rule. That window is
+ * [today−29, today] inclusive; baselineDelta EXCLUDES today from the mean
+ * (decision 3), so the baseline is the ≤29 PRIOR non-null days — 29, NOT 30.
+ * We deliberately do NOT bump the fetch to 31: RECOVERY_STRAIN_DAYS is
+ * load-bearing for 4.2's and 4.11's "last 30 days" copy, and changing it would
+ * silently rewrite their captions. The visible delta caption therefore says
+ * "your recent average" (true of 29 days), never "exactly 30".
+ */
+const BASELINE_WINDOW_DAYS = RECOVERY_STRAIN_DAYS;
+
+/**
+ * Minimum non-null PRIOR days before a delta is shown. 10 is deliberately
+ * STRICTER than buildRollingBaseline's DEFAULT_MIN_SAMPLES = 3 (decision 2):
+ * 3 was tuned for a SMOOTHED line, where a thin early window is visually
+ * forgiving — but a headline "312 cal above your average" computed off 3 days
+ * would be dishonest. Below 10 the card shows the day's value with a "not
+ * enough history yet" caption and NO delta.
+ */
+const BASELINE_MIN_SAMPLES = 10;
+
+/**
+ * Kilojoules per kilocalorie. WHOOP's API returns raw `kilojoule`; the app
+ * shows kcal ("Calories"), so we convert (RECOVERY_ZONES citation precedent).
+ *
+ * 4.184 is the THERMOCHEMICAL calorie — NIST: "cal_th = 4.184 J exactly"
+ * (https://www.nist.gov/pml/special-publication-811/nist-guide-si-footnotes,
+ * fetched 2026-07-19) — which is the convention dietary / "food" Calories use.
+ * The International-Table calorie is 4.1868 J, ~0.1% larger.
+ *
+ * WHOOP does NOT publish which calorie their displayed figure means: checked
+ * developer.whoop.com (whoop-101, workout-data endpoint) and WHOOP support on
+ * 2026-07-19 — their docs describe a proprietary BMR + heart-rate model and
+ * give no kJ→kcal factor. We ship 4.184 because it matches the nutritional
+ * convention and the ~0.1% gap is far below WHOOP's own calorie-estimate error;
+ * if WHOOP ever states otherwise, this single constant is the place to change.
+ */
+const KJ_PER_KCAL = 4.184;
+
+/** Round millis to whole minutes, round-half-up — the transforms millisToMinutes precedent. */
+function millisToMinutesRounded(milli: number): number {
+  return Math.round(milli / 60_000);
+}
+
+/** Total sleep millis → "7:32 hrs" (whole minutes round-half-up, then h:mm). */
+function formatSleepValue(milli: number): string {
+  const minutes = millisToMinutesRounded(milli);
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}:${String(mins).padStart(2, '0')} hrs`;
+}
+
+/** Kilojoules → whole kcal integer (thermochemical calorie, KJ_PER_KCAL). */
+function kilojoulesToKcal(kilojoule: number): number {
+  return Math.round(kilojoule / KJ_PER_KCAL);
+}
+
+/** kcal integer with thousands grouping → "2,384 cal" (fixed en-US, deterministic). */
+function formatCaloriesValue(kilojoule: number): string {
+  return `${kilojoulesToKcal(kilojoule).toLocaleString('en-US')} cal`;
+}
+
+/**
+ * Fetch state → ChartContainer status for the stat tiles. Mirrors SkinTempTile
+ * EXACTLY: 401 → empty (connect-WHOOP); loading/error pass through; a ready
+ * fetch with genuinely-absent data does NOT map to empty — it falls through to
+ * StatDelta's own no-value/no-baseline state, since `empty` means "no session,"
+ * not "no rows" (the 4.9/4.11 rule). buildDailySeries emits a point for every
+ * day in the window, so points.length is never the "no data" signal here.
+ */
+function statTileStatus(series: DailySeriesState): ChartStatus {
+  return series.status === 'unauthenticated' ? 'empty' : series.status;
+}
+
+/**
+ * Bento sleep stat card (§4). Total sleep = the STAGE SUM (light + deep + REM),
+ * already shaped as DailyMetricPoint.totalSleepMilli (decision 1 — NOT
+ * total_in_bed − awake: naps are already excluded upstream, it matches chart
+ * 4.1's stacked bar, and one shipped definition beats a second competing one).
+ * Value in h:mm, delta in whole minutes vs. the trailing baseline. Shares App's
+ * 30-day fetch via a prop — no second useDailySeries call.
+ */
+function SleepStatTile({ series }: { series: DailySeriesState }) {
+  const points = series.status === 'ready' ? series.points : [];
+  const delta = baselineDelta(points, (p) => p.totalSleepMilli, {
+    windowDays: BASELINE_WINDOW_DAYS,
+    minSamples: BASELINE_MIN_SAMPLES,
+    excludeToday: true,
+  });
+  return (
+    <ChartContainer
+      className="bento-sleep"
+      title="Sleep"
+      status={statTileStatus(series)}
+      loadingLabel="Loading your sleep…"
+      emptyMessage="Connect your WHOOP account to see your sleep."
+      errorMessage="Couldn’t load sleep. Refresh to try again."
+    >
+      <StatDelta
+        delta={delta}
+        formatValue={formatSleepValue}
+        deltaToDisplay={millisToMinutesRounded}
+        deltaUnit="min"
+        noValueCaption="no sleep recorded for today yet"
+        noBaselineCaption="not enough history yet for an average"
+      />
+    </ChartContainer>
+  );
+}
+
+/**
+ * Bento calories stat card (§4). `kilojoule` from the day's cycle (added to
+ * DailyMetricPoint in 4.12), converted to a whole kcal integer via KJ_PER_KCAL.
+ * Value and delta both in kcal. Shares App's 30-day fetch via a prop.
+ */
+function CaloriesStatTile({ series }: { series: DailySeriesState }) {
+  const points = series.status === 'ready' ? series.points : [];
+  const delta = baselineDelta(points, (p) => p.kilojoule, {
+    windowDays: BASELINE_WINDOW_DAYS,
+    minSamples: BASELINE_MIN_SAMPLES,
+    excludeToday: true,
+  });
+  return (
+    <ChartContainer
+      className="bento-calories"
+      title="Calories"
+      status={statTileStatus(series)}
+      loadingLabel="Loading your calories…"
+      emptyMessage="Connect your WHOOP account to see your calories."
+      errorMessage="Couldn’t load calories. Refresh to try again."
+    >
+      <StatDelta
+        delta={delta}
+        formatValue={formatCaloriesValue}
+        deltaToDisplay={kilojoulesToKcal}
+        deltaUnit="cal"
+        noValueCaption="today’s calories aren’t in yet"
+        noBaselineCaption="not enough history yet for an average"
       />
     </ChartContainer>
   );
@@ -651,15 +800,9 @@ function App() {
 
           <RecoveryRingTile series={ringSeries} />
 
-          <ChartContainer className="bento-sleep" title="Sleep">
-            <p className="stat-value">—:—hrs</p>
-            <p className="stat-trend">No data yet</p>
-          </ChartContainer>
+          <SleepStatTile series={dailySeries} />
 
-          <ChartContainer className="bento-calories" title="Calories">
-            <p className="stat-value">— cal</p>
-            <p className="stat-trend">No data yet</p>
-          </ChartContainer>
+          <CaloriesStatTile series={dailySeries} />
 
           <StrainRingTile series={ringSeries} />
 

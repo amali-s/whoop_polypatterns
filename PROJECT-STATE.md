@@ -665,7 +665,11 @@ phases, unrelated to the code).
     DERIVED from the stage columns (light + deep + rem), not read from a
     fabricated total. Multiple workouts on a day aggregate into
     `workoutStrainSum` / `workoutCount` (none dropped); a day with no workouts is
-    null on both.
+    null on both. **Phase 4.12 added `kilojoule`** (the day cycle's raw energy in
+    kJ), gated on SCORED exactly like `strain` — the kJ→kcal conversion is a
+    display concern (`KJ_PER_KCAL` in `src/App.tsx`) kept OUT of this pure layer,
+    which never invents a unit the DB doesn't store. (`skinTempCelsius` was added
+    for 4.11 the same way.)
   - `buildSleepStageBreakdown(sleepRows)` → `SleepStageBreakdownPoint[]`: one
     point per night for the 4.1 stacked bar, stage millis → whole minutes
     (`Math.round`, round-half-up, stated in a comment). Nap rows are skipped —
