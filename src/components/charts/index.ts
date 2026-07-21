@@ -17,6 +17,8 @@ export { StackedBarChart } from './StackedBarChart';
 export type { StackedBarChartProps, StackedBarSeriesKey } from './StackedBarChart';
 export { RecoveryStrainComboChart } from './RecoveryStrainComboChart';
 export type { RecoveryStrainComboChartProps } from './RecoveryStrainComboChart';
+export { HrvBaselineComboChart } from './HrvBaselineComboChart';
+export type { HrvBaselineComboChartProps } from './HrvBaselineComboChart';
 export { ProgressRing } from './ProgressRing';
 export type { ProgressRingProps } from './ProgressRing';
 export { DotMatrix } from './DotMatrix';

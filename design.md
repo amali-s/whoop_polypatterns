@@ -356,14 +356,33 @@ specifies a desktop/tablet variant).
 > kicking off Phase 4). Chart 6 uses the strain-matrix option, not the
 > questionnaire-correlation option, since Phase 5 does not exist yet.
 
-| #   | Chart type        | Confirmed mapping                                                                                                            |
-| --- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Stacked bar       | Sleep stages per night (Awake / Light / Deep / REM → total sleep)                                                            |
-| 2   | Combo (line+area) | Recovery % (line) over Day Strain (area) — readiness vs. load                                                                |
-| 3   | Combo (line+area) | HRV (line) over the confirmed ideal-band (area) — see methodology below                                                      |
-| 4   | Dot-matrix        | Recovery calendar — one dot/day, color = recovery zone (red/yellow/green)                                                    |
-| 5   | Dot-matrix        | Sleep performance — dot size/color = % of sleep need met                                                                     |
-| 6   | Dot-matrix        | Strain matrix (one cell/day, color/intensity = day strain). Questionnaire-correlation variant revisited once Phase 5 exists. |
+| #   | Chart type        | Confirmed mapping                                                                                                                                                          |
+| --- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Stacked bar       | Sleep stages per night (Awake / Light / Deep / REM → total sleep)                                                                                                          |
+| 2   | Combo (line+area) | Recovery % (line) over Day Strain (area) — readiness vs. load                                                                                                              |
+| 3   | Combo (line+area) | HRV (line) over a trailing rolling baseline (area). **Population ideal-band DEFERRED — shipped as a rolling baseline 2026-07-21; see the note directly below this table.** |
+| 4   | Dot-matrix        | Recovery calendar — one dot/day, color = recovery zone (red/yellow/green)                                                                                                  |
+| 5   | Dot-matrix        | Sleep performance — dot size/color = % of sleep need met                                                                                                                   |
+| 6   | Dot-matrix        | Strain matrix (one cell/day, color/intensity = day strain). Questionnaire-correlation variant revisited once Phase 5 exists.                                               |
+
+> **Chart 3 — ideal-band DEFERRED, rolling-baseline variant shipped instead (decided 2026-07-21).**
+> The "confirmed ideal-band" this row originally locked (the Lee et al. cycle-day
+> methodology in the "HRV / RHR 'ideal' band" section below) is a function of
+> **menstrual cycle day** — it places the user on the band by where they are in
+> their cycle (HRV max ≈ cycle day 4.8, min ≈ day 27.1). That cycle-day signal
+> does not exist until Phase 5's period journal ships and `src/lib/cycle.ts` can
+> derive it, so the population band is **deferred pending Phase 5 cycle-day data**
+> (same dependency that blocks the 4.10 period meter). Rather than leave the tile
+> a placeholder, chart **4.3 shipped the ROADMAP's alternative mapping** — HRV
+> (line) over its own **trailing 7-day rolling baseline** (area), computed
+> client-side via `buildRollingBaseline` — as `HrvBaselineComboChart`
+> (`src/components/charts/HrvBaselineComboChart.tsx`). It is labelled **"Recent
+> baseline"**, deliberately NOT "Ideal": there is no population study behind a
+> trailing mean, and this codebase does not mislabel what a chart shows. When
+> Phase 5 lands, the ideal-band variant can be revisited as an enhancement (or a
+> toggle) without disturbing the shipped rolling baseline. Full decision +
+> file/wiring detail: ROADMAP.md **4.3**; the deferred methodology it supersedes
+> is preserved unchanged in the "HRV / RHR 'ideal' band" section below.
 
 Candidate WHOOP v2 metrics to draw from: recovery %, HRV, resting heart rate,
 day strain, sleep performance, sleep duration/stages, respiratory rate — plus

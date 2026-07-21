@@ -7,6 +7,7 @@ import { ChartContainer, type ChartStatus } from './components/ChartContainer';
 import { LoadingState, ErrorState } from './components/states';
 import {
   DotMatrix,
+  HrvBaselineComboChart,
   ProgressRing,
   RecoveryStrainComboChart,
   Sparkline,
@@ -157,6 +158,66 @@ function RecoveryStrainTile({ series }: { series: DailySeriesState }) {
         data={points}
         title="Recovery vs. strain"
         tableCaption={`Daily recovery percent and day strain, last ${RECOVERY_STRAIN_DAYS} days`}
+      />
+    </ChartContainer>
+  );
+}
+
+// --- Phase 4.3 — HRV over rolling-baseline combo tile ----------------------
+
+/**
+ * Bento HRV tile (§4, chart-3 slot): actual daily HRV as a line over its own
+ * 7-day trailing rolling baseline as an area. Shares App's single 30-day fetch
+ * with the other tiles (the 4.9 rule against per-tile duplicate fetches).
+ *
+ * Status mapping matches RecoveryStrainTile EXACTLY (NOT SkinTempTile's): 401
+ * or a ready fetch with no HRV in the window → 'empty'; loading/error pass
+ * through. Unlike skin temp — where all-null is the normal pre-4.0-hardware
+ * case — a 30-day window with zero scored HRV means there's genuinely nothing
+ * to show, so the connect/no-data empty state is the honest read.
+ * (buildDailySeries emits a point for every day, so `points.length === 0` is
+ * never the "no data" signal.)
+ */
+function HrvBaselineTile({ series }: { series: DailySeriesState }) {
+  const points = series.status === 'ready' ? series.points : [];
+  const hasData = points.some((p) => p.hrvRmssdMilli != null);
+  const status: ChartStatus =
+    series.status === 'unauthenticated' || (series.status === 'ready' && !hasData)
+      ? 'empty'
+      : series.status;
+  return (
+    <ChartContainer
+      className="bento-hrv"
+      title="HRV over time"
+      bodyHeight={128}
+      status={status}
+      loadingLabel="Loading your HRV…"
+      emptyMessage={
+        series.status === 'unauthenticated'
+          ? 'Connect your WHOOP account to see your HRV.'
+          : `No HRV data in the last ${RECOVERY_STRAIN_DAYS} days — run a sync, then refresh.`
+      }
+      errorMessage="Couldn’t load HRV. Refresh to try again."
+      legend={
+        <>
+          <span className="legend-item">
+            <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
+            Actual HRV
+          </span>
+          <span className="legend-item">
+            {/* Rolling baseline, NOT a population "ideal" band (that's deferred
+                to Phase 5) — the swatch keeps the chart-4 --color-chart-4 token,
+                the label tells the honest story. */}
+            <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
+            Recent baseline
+          </span>
+        </>
+      }
+    >
+      <HrvBaselineComboChart
+        data={points}
+        title="HRV over time"
+        tableCaption={`Daily HRV in ms with a 7-day rolling baseline, last ${RECOVERY_STRAIN_DAYS} days`}
       />
     </ChartContainer>
   );
@@ -808,29 +869,7 @@ function App() {
 
           <SkinTempTile series={dailySeries} />
 
-          <ChartContainer
-            className="bento-hrv"
-            title="HRV over time"
-            bodyHeight={128}
-            legend={
-              <>
-                <span className="legend-item">
-                  <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
-                  Actual HRV
-                </span>
-                <span className="legend-item">
-                  <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
-                  Ideal HRV
-                </span>
-              </>
-            }
-          >
-            <div
-              className="combo-chart-placeholder"
-              role="img"
-              aria-label="HRV over time, no data yet"
-            />
-          </ChartContainer>
+          <HrvBaselineTile series={dailySeries} />
 
           <ChartContainer
             className="bento-rhr"
