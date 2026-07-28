@@ -49,6 +49,16 @@ export interface StatDeltaProps {
   noValueCaption: string;
   /** Muted caption under the value when the baseline is too thin for a delta. */
   noBaselineCaption: string;
+  /**
+   * Added 2026-07-21 for the Sleep tile's `latestScoredSlice` fallback (App.tsx):
+   * when the caller falls back to a day OTHER than calendar-today (a sync-lag
+   * or a genuinely-older scored night), it passes a human label for that day
+   * ("As of July 20") here. Omitted/undefined when the value IS today's — the
+   * common case stays silent, exactly like before this prop existed. Only
+   * rendered alongside an actual value (kind 'no-baseline' or 'full'); there is
+   * nothing to date when kind is 'no-value'.
+   */
+  asOfLabel?: string;
 }
 
 export function StatDelta({
@@ -58,6 +68,7 @@ export function StatDelta({
   deltaUnit,
   noValueCaption,
   noBaselineCaption,
+  asOfLabel,
 }: StatDeltaProps) {
   if (delta.kind === 'no-value') {
     return (
@@ -73,6 +84,7 @@ export function StatDelta({
       <div className="stat-delta">
         <p className="stat-delta-value">{formatValue(delta.value)}</p>
         <p className="stat-delta-caption">{noBaselineCaption}</p>
+        {asOfLabel && <p className="stat-delta-asof">{asOfLabel}</p>}
       </div>
     );
   }
@@ -99,6 +111,7 @@ export function StatDelta({
         )}
         {sentence}
       </p>
+      {asOfLabel && <p className="stat-delta-asof">{asOfLabel}</p>}
     </div>
   );
 }

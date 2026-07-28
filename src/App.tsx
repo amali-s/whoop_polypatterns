@@ -342,20 +342,71 @@ function statTileStatus(series: DailySeriesState): ChartStatus {
 }
 
 /**
+ * Most recent day (scanning backward from the end of `points`) whose `metric`
+ * is non-null, returned as the series SLICED to end on that day — so a
+ * downstream `baselineDelta` call treats that day as "today" and correctly
+ * excludes it from its own trailing baseline. `null` only when NO day in the
+ * whole fetched window has a value (never synced / brand-new account).
+ *
+ * Mirrors `latestScored`'s backward scan (the Recovery/Strain ring precedent,
+ * below) but returns a slice instead of a single point, since the caller needs
+ * a full sub-series to compute a baseline against, not just a headline number.
+ */
+function latestScoredSlice<T extends { day: string }>(
+  points: readonly T[],
+  metric: (p: T) => number | null,
+): readonly T[] | null {
+  for (let i = points.length - 1; i >= 0; i--) {
+    if (metric(points[i]) != null) {
+      return points.slice(0, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
  * Bento sleep stat card (§4). Total sleep = the STAGE SUM (light + deep + REM),
  * already shaped as DailyMetricPoint.totalSleepMilli (decision 1 — NOT
  * total_in_bed − awake: naps are already excluded upstream, it matches chart
  * 4.1's stacked bar, and one shipped definition beats a second competing one).
  * Value in h:mm, delta in whole minutes vs. the trailing baseline. Shares App's
  * 30-day fetch via a prop — no second useDailySeries call.
+ *
+ * FALLBACK (changed 2026-07-21, at your direction): unlike Calories, Sleep
+ * does NOT strictly require the calendar-today row. WHOOP scores sleep and
+ * Recovery from the same overnight session at the same moment on waking, and
+ * both are already fetched in the identical daily sync pass — so Sleep now
+ * scans backward for the latest scored night exactly like `latestScored` does
+ * for the Recovery/Strain rings below, instead of going blank whenever the
+ * sync for today's calendar date hasn't landed yet. Calories deliberately
+ * keeps the strict today-only check: it accrues live through the day, so
+ * today being null there is a genuinely different, still-true state, not just
+ * a sync-lag artifact.
+ * DISCLOSURE (added 2026-07-21): when the fallback reaches past
+ * calendar-today, the tile shows a visible `formatRingDay`-labeled "As of
+ * [date]" line (StatDelta's `asOfLabel`) — closing the gap the earlier
+ * version of this comment flagged, and giving Sleep the same day-honesty the
+ * rings already had (their `<desc>`), just visible instead of aria-only,
+ * since StatDelta has no desc channel to put it in.
  */
 function SleepStatTile({ series }: { series: DailySeriesState }) {
   const points = series.status === 'ready' ? series.points : [];
-  const delta = baselineDelta(points, (p) => p.totalSleepMilli, {
-    windowDays: BASELINE_WINDOW_DAYS,
-    minSamples: BASELINE_MIN_SAMPLES,
-    excludeToday: true,
-  });
+  const sleepPoints = latestScoredSlice(points, (p) => p.totalSleepMilli);
+  const delta = sleepPoints
+    ? baselineDelta(sleepPoints, (p) => p.totalSleepMilli, {
+        windowDays: BASELINE_WINDOW_DAYS,
+        minSamples: BASELINE_MIN_SAMPLES,
+        excludeToday: true,
+      })
+    : ({ kind: 'no-value' } as const);
+  // "Today" per the SHARED series (what Calories/every other tile treats as
+  // today) vs. the day the sleep fallback actually landed on. Only differ
+  // when the scan above had to reach backward — the common on-time case
+  // stays silent (asOfLabel undefined), matching StatDelta's default.
+  const trueToday = points.length > 0 ? points[points.length - 1].day : null;
+  const sleepDay = sleepPoints ? sleepPoints[sleepPoints.length - 1].day : null;
+  const asOfLabel =
+    sleepDay && sleepDay !== trueToday ? `As of ${formatRingDay(sleepDay)}` : undefined;
   return (
     <ChartContainer
       className="bento-sleep"
@@ -370,8 +421,9 @@ function SleepStatTile({ series }: { series: DailySeriesState }) {
         formatValue={formatSleepValue}
         deltaToDisplay={millisToMinutesRounded}
         deltaUnit="min"
-        noValueCaption="no sleep recorded for today yet"
+        noValueCaption="no sleep recorded yet"
         noBaselineCaption="not enough history yet for an average"
+        asOfLabel={asOfLabel}
       />
     </ChartContainer>
   );
