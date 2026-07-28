@@ -3,6 +3,7 @@ import './App.css';
 import { checkSessionWithRetry, type SessionStatus } from './session-check';
 import { Card } from './components/Card';
 import { Button } from './components/Button';
+import { RangeToggle, type RangeToggleOption } from './components/RangeToggle';
 import { ChartContainer, type ChartStatus } from './components/ChartContainer';
 import { LoadingState, ErrorState } from './components/states';
 import {
@@ -122,16 +123,78 @@ function SleepStagesTile() {
   );
 }
 
-const RECOVERY_STRAIN_DAYS = 30;
+/**
+ * The two windows the bento time-range toggle (4.14) offers. Replaces the
+ * fixed `RECOVERY_STRAIN_DAYS = 30` this file used through 4.13: every
+ * range-driven tile now reads App's live `rangeDays` state instead, so the
+ * window and the copy that names it can never drift apart.
+ *
+ * 90 is the ceiling because `/api/daily-series` already clamps `?days=` to
+ * MAX_DAYS = 90 — no new ceiling was added for this feature, and asking for
+ * more would silently come back as 90 anyway.
+ *
+ * RING_DAYS (7) is deliberately NOT part of this union: the ring tiles read a
+ * single latest-scored day rather than charting a range, so the toggle has
+ * nothing to change about them (ROADMAP 4.14's out-of-scope note).
+ */
+export type RangeDays = 30 | 90;
+
+const DEFAULT_RANGE_DAYS: RangeDays = 30;
+
+/** localStorage key for the toggle's persisted selection. */
+const RANGE_STORAGE_KEY = 'whoop-dashboard:range-days';
+
+/**
+ * Persisted range, read once for the initial render. ANY malformed value —
+ * absent key, non-numeric, a number outside the union, or a throwing
+ * localStorage (Safari private mode, storage disabled) — falls back to 30
+ * rather than propagating. A dashboard window is not worth a blank screen.
+ */
+function readStoredRangeDays(): RangeDays {
+  try {
+    const raw = window.localStorage.getItem(RANGE_STORAGE_KEY);
+    return raw !== null && Number(raw) === 90 ? 90 : DEFAULT_RANGE_DAYS;
+  } catch {
+    return DEFAULT_RANGE_DAYS;
+  }
+}
+
+/** Persist the selection. Swallows storage failures — same reasoning as above. */
+function storeRangeDays(days: RangeDays): void {
+  try {
+    window.localStorage.setItem(RANGE_STORAGE_KEY, String(days));
+  } catch {
+    // Storage unavailable/full: the selection still applies for this session,
+    // it just won't survive a reload. Not worth surfacing.
+  }
+}
+
+/**
+ * Toggle options. Labels are CALENDAR-MONTH language ("1 month" / "3 months")
+ * while the values are exact day counts — 30 and 90 are approximations of a
+ * month and a quarter, and the tiles' own copy still names the true window
+ * ("last 90 days"), so nothing claims a precision it doesn't have.
+ */
+const RANGE_OPTIONS: readonly RangeToggleOption<RangeDays>[] = [
+  { value: 30, label: '1 month' },
+  { value: 90, label: '3 months' },
+];
 
 /**
  * Full-width combo-chart row below the bento grid (same "Layout gap" decision
  * as SleepStagesTile — chart 4.2 has no bento slot). Drives ChartContainer's
- * status from the fetch state. Receives the shared 30-day series from App
+ * status from the fetch state. Receives the shared series from App
  * (4.11 lifted the fetch — SkinTempTile reads the same rows, and a per-tile
- * hook here would double-fetch them, the 4.9 rule).
+ * hook here would double-fetch them, the 4.9 rule), plus the selected
+ * `rangeDays` so its copy names the window actually fetched (4.14).
  */
-function RecoveryStrainTile({ series }: { series: DailySeriesState }) {
+function RecoveryStrainTile({
+  series,
+  rangeDays,
+}: {
+  series: DailySeriesState;
+  rangeDays: RangeDays;
+}) {
   const points = series.status === 'ready' ? series.points : [];
   // buildDailySeries emits a point for EVERY day in the window (all-null on
   // dataless days), so unlike sleep-stages `points.length === 0` never means
@@ -144,20 +207,20 @@ function RecoveryStrainTile({ series }: { series: DailySeriesState }) {
   return (
     <ChartContainer
       title="Recovery vs. strain"
-      subtitle={`Recovery % (line, left axis) over day strain (area, right axis) — last ${RECOVERY_STRAIN_DAYS} days`}
+      subtitle={`Recovery % (line, left axis) over day strain (area, right axis) — last ${rangeDays} days`}
       status={status}
       loadingLabel="Loading your recovery and strain…"
       emptyMessage={
         series.status === 'unauthenticated'
           ? 'Connect your WHOOP account to see your recovery and strain.'
-          : `No recovery or strain data in the last ${RECOVERY_STRAIN_DAYS} days — run a sync, then refresh.`
+          : `No recovery or strain data in the last ${rangeDays} days — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load recovery and strain. Refresh to try again."
     >
       <RecoveryStrainComboChart
         data={points}
         title="Recovery vs. strain"
-        tableCaption={`Daily recovery percent and day strain, last ${RECOVERY_STRAIN_DAYS} days`}
+        tableCaption={`Daily recovery percent and day strain, last ${rangeDays} days`}
       />
     </ChartContainer>
   );
@@ -167,18 +230,29 @@ function RecoveryStrainTile({ series }: { series: DailySeriesState }) {
 
 /**
  * Bento HRV tile (§4, chart-3 slot): actual daily HRV as a line over its own
- * 7-day trailing rolling baseline as an area. Shares App's single 30-day fetch
- * with the other tiles (the 4.9 rule against per-tile duplicate fetches).
+ * 7-day trailing rolling baseline as an area. Shares App's single fetch with
+ * the other tiles (the 4.9 rule against per-tile duplicate fetches).
+ *
+ * The 7-day ROLLING baseline inside the chart is independent of the 4.14
+ * range toggle: it's a smoothing window over the plotted series, not the
+ * series' extent. Widening the range to 90 days plots more points, each still
+ * smoothed against its own preceding week.
  *
  * Status mapping matches RecoveryStrainTile EXACTLY (NOT SkinTempTile's): 401
  * or a ready fetch with no HRV in the window → 'empty'; loading/error pass
  * through. Unlike skin temp — where all-null is the normal pre-4.0-hardware
- * case — a 30-day window with zero scored HRV means there's genuinely nothing
- * to show, so the connect/no-data empty state is the honest read.
+ * case — a window with zero scored HRV means there's genuinely nothing to
+ * show, so the connect/no-data empty state is the honest read.
  * (buildDailySeries emits a point for every day, so `points.length === 0` is
  * never the "no data" signal.)
  */
-function HrvBaselineTile({ series }: { series: DailySeriesState }) {
+function HrvBaselineTile({
+  series,
+  rangeDays,
+}: {
+  series: DailySeriesState;
+  rangeDays: RangeDays;
+}) {
   const points = series.status === 'ready' ? series.points : [];
   const hasData = points.some((p) => p.hrvRmssdMilli != null);
   const status: ChartStatus =
@@ -195,7 +269,7 @@ function HrvBaselineTile({ series }: { series: DailySeriesState }) {
       emptyMessage={
         series.status === 'unauthenticated'
           ? 'Connect your WHOOP account to see your HRV.'
-          : `No HRV data in the last ${RECOVERY_STRAIN_DAYS} days — run a sync, then refresh.`
+          : `No HRV data in the last ${rangeDays} days — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load HRV. Refresh to try again."
       legend={
@@ -217,7 +291,7 @@ function HrvBaselineTile({ series }: { series: DailySeriesState }) {
       <HrvBaselineComboChart
         data={points}
         title="HRV over time"
-        tableCaption={`Daily HRV in ms with a 7-day rolling baseline, last ${RECOVERY_STRAIN_DAYS} days`}
+        tableCaption={`Daily HRV in ms with a 7-day rolling baseline, last ${rangeDays} days`}
       />
     </ChartContainer>
   );
@@ -227,8 +301,9 @@ function HrvBaselineTile({ series }: { series: DailySeriesState }) {
 
 /**
  * Bento skin-temp tile (§4: `skin_temp_celsius`, chart-3 sparkline). Shares
- * App's single 30-day fetch with RecoveryStrainTile (the 4.9 rule against
- * per-tile duplicate fetches of identical rows).
+ * App's single fetch with RecoveryStrainTile (the 4.9 rule against per-tile
+ * duplicate fetches of identical rows), and its copy names the 4.14-selected
+ * window.
  *
  * Status mapping deliberately DIVERGES from RecoveryStrainTile's: ready with
  * all-null skin temps is NOT mapped to 'empty' — null is the NORMAL case on
@@ -238,7 +313,7 @@ function HrvBaselineTile({ series }: { series: DailySeriesState }) {
  * 401/no session only. (buildDailySeries emits a point for every day in the
  * window, so `points.length === 0` never means "no data" either.)
  */
-function SkinTempTile({ series }: { series: DailySeriesState }) {
+function SkinTempTile({ series, rangeDays }: { series: DailySeriesState; rangeDays: RangeDays }) {
   const points = series.status === 'ready' ? series.points : [];
   const status: ChartStatus = series.status === 'unauthenticated' ? 'empty' : series.status;
   // No bodyHeight on the container: the Sparkline owns its 64px plot height
@@ -256,8 +331,8 @@ function SkinTempTile({ series }: { series: DailySeriesState }) {
       <Sparkline
         data={points}
         title="Skin temp over time"
-        tableCaption={`Daily skin temperature in °C, last ${RECOVERY_STRAIN_DAYS} days`}
-        noDataCaption={`no readings in the last ${RECOVERY_STRAIN_DAYS} days — skin temp needs WHOOP 4.0 or newer`}
+        tableCaption={`Daily skin temperature in °C, last ${rangeDays} days`}
+        noDataCaption={`no readings in the last ${rangeDays} days — skin temp needs WHOOP 4.0 or newer`}
       />
     </ChartContainer>
   );
@@ -266,25 +341,35 @@ function SkinTempTile({ series }: { series: DailySeriesState }) {
 // --- Phase 4.12 — Calories & Sleep stat cards ------------------------------
 
 /**
- * Baseline window for the stat-card deltas. REUSES App's shared 30-day fetch
- * (RECOVERY_STRAIN_DAYS) — a second useDailySeries call over an identical
- * window would violate the 4.9 no-duplicate-fetch rule. That window is
- * [today−29, today] inclusive; baselineDelta EXCLUDES today from the mean
- * (decision 3), so the baseline is the ≤29 PRIOR non-null days — 29, NOT 30.
- * We deliberately do NOT bump the fetch to 31: RECOVERY_STRAIN_DAYS is
- * load-bearing for 4.2's and 4.11's "last 30 days" copy, and changing it would
+ * BASELINE WINDOW for the stat-card deltas — as of 4.14 no longer a constant.
+ * The old `BASELINE_WINDOW_DAYS = RECOVERY_STRAIN_DAYS` is gone; both stat
+ * tiles now pass their `rangeDays` prop straight through as baselineDelta's
+ * `windowDays`, so "your recent average" means "the average over whatever
+ * window is currently selected" — pick 3 months and the delta is measured
+ * against a 3-month baseline. It still reads App's single shared fetch (a
+ * second useDailySeries call over an identical window would violate the 4.9
+ * no-duplicate-fetch rule).
+ *
+ * The window is [today−(n−1), today] inclusive; baselineDelta EXCLUDES today
+ * from the mean (decision 3), so the baseline is the ≤n−1 PRIOR non-null days.
+ * We deliberately do NOT bump the fetch by one to compensate: `rangeDays` is
+ * load-bearing for 4.2's and 4.11's "last N days" copy, and changing it would
  * silently rewrite their captions. The visible delta caption therefore says
- * "your recent average" (true of 29 days), never "exactly 30".
- */
-const BASELINE_WINDOW_DAYS = RECOVERY_STRAIN_DAYS;
-
-/**
+ * "your recent average", never an exact day count.
+ *
  * Minimum non-null PRIOR days before a delta is shown. 10 is deliberately
  * STRICTER than buildRollingBaseline's DEFAULT_MIN_SAMPLES = 3 (decision 2):
  * 3 was tuned for a SMOOTHED line, where a thin early window is visually
  * forgiving — but a headline "312 cal above your average" computed off 3 days
  * would be dishonest. Below 10 the card shows the day's value with a "not
  * enough history yet" caption and NO delta.
+ *
+ * This floor stays FIXED at 10 across both ranges (4.14 decision) — it is a
+ * floor on statistical confidence, not a fraction of the window. Scaling it
+ * with the range (e.g. 30 samples at 90 days) would make the 3-month view go
+ * BLANK for exactly the users with sparse history who benefit most from a
+ * longer lookback, while 10 real days is no less trustworthy a mean because
+ * the window around it got wider.
  */
 const BASELINE_MIN_SAMPLES = 10;
 
@@ -389,12 +474,12 @@ function latestScoredSlice<T extends { day: string }>(
  * rings already had (their `<desc>`), just visible instead of aria-only,
  * since StatDelta has no desc channel to put it in.
  */
-function SleepStatTile({ series }: { series: DailySeriesState }) {
+function SleepStatTile({ series, rangeDays }: { series: DailySeriesState; rangeDays: RangeDays }) {
   const points = series.status === 'ready' ? series.points : [];
   const sleepPoints = latestScoredSlice(points, (p) => p.totalSleepMilli);
   const delta = sleepPoints
     ? baselineDelta(sleepPoints, (p) => p.totalSleepMilli, {
-        windowDays: BASELINE_WINDOW_DAYS,
+        windowDays: rangeDays,
         minSamples: BASELINE_MIN_SAMPLES,
         excludeToday: true,
       })
@@ -432,12 +517,19 @@ function SleepStatTile({ series }: { series: DailySeriesState }) {
 /**
  * Bento calories stat card (§4). `kilojoule` from the day's cycle (added to
  * DailyMetricPoint in 4.12), converted to a whole kcal integer via KJ_PER_KCAL.
- * Value and delta both in kcal. Shares App's 30-day fetch via a prop.
+ * Value and delta both in kcal. Shares App's fetch via a prop, and takes the
+ * 4.14-selected `rangeDays` as its baseline window.
  */
-function CaloriesStatTile({ series }: { series: DailySeriesState }) {
+function CaloriesStatTile({
+  series,
+  rangeDays,
+}: {
+  series: DailySeriesState;
+  rangeDays: RangeDays;
+}) {
   const points = series.status === 'ready' ? series.points : [];
   const delta = baselineDelta(points, (p) => p.kilojoule, {
-    windowDays: BASELINE_WINDOW_DAYS,
+    windowDays: rangeDays,
     minSamples: BASELINE_MIN_SAMPLES,
     excludeToday: true,
   });
@@ -704,11 +796,25 @@ function App() {
   // Manual "Sync now" (see handleSyncNow). Kept in App because the button sits
   // in the header, next to the connection chip it depends on.
   const [syncState, setSyncState] = useState<ManualSyncState>('idle');
-  // One fetch feeds both ring tiles (see RecoveryRingTile's comment).
+  // Selected dashboard window (4.14), restored from localStorage during the
+  // first render rather than in an effect — an effect would flash the 30-day
+  // view and fire a second, immediately-superseded fetch for anyone on 90.
+  const [rangeDays, setRangeDays] = useState<RangeDays>(readStoredRangeDays);
+  // One fetch feeds both ring tiles (see RecoveryRingTile's comment). RING_DAYS
+  // stays fixed at 7 — the toggle does not touch the rings (4.14 scope).
   const ringSeries = useDailySeries(RING_DAYS);
-  // One 30-day fetch feeds RecoveryStrainTile AND SkinTempTile — same
-  // no-duplicate-fetch rule, different window than the rings.
-  const dailySeries = useDailySeries(RECOVERY_STRAIN_DAYS);
+  // One range-driven fetch feeds RecoveryStrainTile, HrvBaselineTile,
+  // SkinTempTile and both stat cards — same no-duplicate-fetch rule, different
+  // window than the rings. useDailySeries keys its effect on `days`, so
+  // flipping the toggle refetches; per that hook's comment the previous points
+  // linger until the new response lands (no loading flash, no cleared tiles).
+  const dailySeries = useDailySeries(rangeDays);
+
+  /** Apply a new range and persist it. Single place the two stay in sync. */
+  function handleRangeChange(next: RangeDays): void {
+    setRangeDays(next);
+    storeRangeDays(next);
+  }
 
   /**
    * Pull fresh WHOOP data on demand. The Vercel Hobby cron can only run once a
@@ -888,6 +994,22 @@ function App() {
           )}
         </Card>
 
+        {/* 4.14 time-range toggle. Placed in the 1200px MAIN COLUMN, as shell
+            content beside the OAuth banner and auth card — deliberately NOT
+            inside .bento-grid: design.md §2's confirmed Figma layout is a
+            430px mobile frame with no reserved slot for a control, and the
+            grid is capped at 640px, so forcing one in would mean editing the
+            locked grid-template-areas. This placement is purely additive and
+            reversible — nothing in the bento grid changed to accommodate it. */}
+        <div className="range-toggle-row">
+          <RangeToggle
+            label="Dashboard time range"
+            options={RANGE_OPTIONS}
+            value={rangeDays}
+            onChange={handleRangeChange}
+          />
+        </div>
+
         <section className="bento-grid" aria-label="Charts">
           <PeriodMeterTile />
 
@@ -913,15 +1035,15 @@ function App() {
 
           <RecoveryRingTile series={ringSeries} />
 
-          <SleepStatTile series={dailySeries} />
+          <SleepStatTile series={dailySeries} rangeDays={rangeDays} />
 
-          <CaloriesStatTile series={dailySeries} />
+          <CaloriesStatTile series={dailySeries} rangeDays={rangeDays} />
 
           <StrainRingTile series={ringSeries} />
 
-          <SkinTempTile series={dailySeries} />
+          <SkinTempTile series={dailySeries} rangeDays={rangeDays} />
 
-          <HrvBaselineTile series={dailySeries} />
+          <HrvBaselineTile series={dailySeries} rangeDays={rangeDays} />
 
           <ChartContainer
             className="bento-rhr"
@@ -949,7 +1071,7 @@ function App() {
         </section>
 
         <SleepStagesTile />
-        <RecoveryStrainTile series={dailySeries} />
+        <RecoveryStrainTile series={dailySeries} rangeDays={rangeDays} />
       </main>
     </>
   );

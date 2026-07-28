@@ -210,3 +210,82 @@
 .ui-input::placeholder {
   color: var(--color-muted);
 }
+
+/* --- RangeToggle: segmented control (Phase 4.14) --- */
+/* Aero pill register, matching .ui-btn's vocabulary (pill radius, inset gloss,
+ * 1px border) but as ONE grouped track with a selected segment inside it —
+ * a row of separate .ui-btn pills would read as several independent actions
+ * rather than a single either/or choice. */
+.range-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-inset-gloss);
+}
+
+.range-toggle-option {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-4);
+  background: transparent;
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    color 0.2s;
+
+  /* §5.1's focus indicator, unchanged: #1173a6 at ≥4.6:1 on every shell
+   * background (the bar needs 3:1). */
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Same 44×44px tap-target extension as .ui-btn — the rendered segment is
+   * ~27px tall, and the pseudo-element hit-tests as part of the button.
+   * Segments sit adjacent, so the width stays at 100% (no horizontal
+   * overlap into the neighbour's hit area); only the height is grown. */
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    height: max(100%, 44px);
+  }
+
+  &:hover {
+    color: var(--color-accent-strong);
+  }
+}
+
+/* The selected segment carries the accent fill — NOT --color-border alone,
+ * which §5.1 forbids as a control's only boundary. Selection is additionally
+ * conveyed by aria-checked, so this is not a color-only signal. */
+.range-toggle-option-selected {
+  border-color: var(--color-accent-strong);
+  background: var(--color-accent);
+  color: var(--color-surface);
+
+  &:hover {
+    background: var(--color-accent-strong);
+    color: var(--color-surface);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .range-toggle-option {
+    transition: none;
+  }
+}
