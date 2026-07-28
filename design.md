@@ -198,6 +198,7 @@ body (--color-bg)
     └── <main class="dashboard">      centered column, max-width 1200px
           ├── OAuth error banner (when present)
           ├── auth/connection card (the pre-3.2 card, now shell content)
+          ├── <div class="range-toggle-row"> — time-range toggle (task 4.14)
           └── <section class="dashboard-grid"> — six chart-card slots
 ```
 
@@ -270,6 +271,41 @@ specifies a desktop/tablet variant).
   currently reserve fixed heights (128px / 64px) — placeholder values, not a
   Phase 4 chart-sizing decision; real D3 charts will size responsively.
 
+### Time-range toggle placement (task 4.14, 2026-07-28)
+
+The dashboard window is user-selectable between 30 and 90 days. The control
+(`RangeToggle`, §3) lives in a `.range-toggle-row` in the **1200px main
+column, directly above `.bento-grid`** — shell content, in the same band as
+the OAuth error banner and auth card.
+
+**It is deliberately NOT a bento tile.** The confirmed Figma frame (node
+`86:71`) is a 430px mobile mockup with no reserved slot for a control, and
+`.bento-grid` is capped at 640px — fitting one in would mean editing the
+locked `grid-template-areas` above. Placing it in the shell band instead is
+purely **additive and reversible**: nothing in the bento grid changed to
+accommodate it. This is the same "no bento slot → don't force one" reasoning
+as the Layout-gap decision above, applied to a control rather than a chart.
+
+The row mirrors the grid's own `max-width: 640px` + `margin-inline: auto` so
+the control lines up with the tiles it governs rather than floating out at the
+full 1200px, and right-aligns within that box so it reads as a control **on**
+the grid, not a heading over it. The main column already supplies the
+`--space-5` gap between shell children, so the row sets no margin of its own.
+
+**Behavior.** Selecting a range re-drives the single shared
+`useDailySeries(rangeDays)` fetch, so all five range-driven tiles
+(Recovery-vs-strain, HRV, skin temp, Sleep, Calories) update together, and
+every caption that names the window ("last 30 days") re-renders to match. The
+stat cards' baseline window tracks the selection too, so "your recent average"
+always means the average over the window on screen. The selection persists in
+`localStorage` (`whoop-dashboard:range-days`), read during the first render so
+a 3-month user never sees a 30-day flash.
+
+**Out of scope by design:** the Recovery/Strain rings (`RING_DAYS` = 7), the
+period meter, and the journal do not respond to the toggle — each reads a
+single latest-scored day rather than charting a range, so there is no window
+for the control to change. Verified byte-identical across a toggle.
+
 ---
 
 ## 3. Component inventory
@@ -307,6 +343,28 @@ specifies a desktop/tablet variant).
   primary/secondary variants on `--color-accent`/`--color-accent-strong` +
   `--radius-pill`, sizes `md` (card CTA) / `sm` (header pill). Renders a
   real `<a>` when `href` is given (the OAuth actions are 302 navigations).
+- **RangeToggle** — **✅ built (4.14)**: `src/components/RangeToggle.tsx` —
+  segmented control for the dashboard time range (§2 for placement). Props:
+  `options` (`{value, label}[]`), `value`, `onChange`, `label` (the group's
+  accessible name — there is no visible legend), `className`. Generic over
+  the option value, so it isn't hard-wired to day counts. Styled in the
+  `Button` pill vocabulary (pill radius, inset gloss, 1px border) but as ONE
+  grouped track with a selected segment inside it — a row of separate
+  `.ui-btn` pills would read as several independent actions rather than a
+  single either/or choice. Selected segment takes the accent FILL, matching
+  `.ui-btn-primary`.
+  **Accessibility:** `role="radiogroup"` over native `<button role="radio">`
+  with `aria-checked`; roving tabindex (one Tab stop for the group);
+  arrow keys on both axes plus Home/End, with selection following focus per
+  the WAI-ARIA radio pattern; native buttons retain Space/Enter. §5.2's chart
+  contract does **not** apply — this is a control, not a chart, with no data
+  to expose as a table — but §5.1's shell rules do: standard `2px solid
+var(--color-accent)` focus ring, 44px tap target via the `::after`
+  extension, and selection conveyed by `aria-checked` as well as color (so
+  the accent fill is never the only signal). _Note:_ this is the first
+  component to use a custom `tabIndex`, which §5.1's "no custom tabIndex
+  anywhere" audit line no longer covers verbatim — it is required by the
+  radiogroup pattern, not decoration.
 - **Form primitives** — **✅ built (3.3, unconsumed)**:
   `src/components/form.tsx` — `Label`, `Input`, `Select` on the §1 tokens.
   Deliberately minimal; the Phase 5 questionnaire is their first consumer.
