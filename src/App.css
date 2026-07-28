@@ -205,14 +205,9 @@
 /* Sleep / Calories stat tiles: real StatDelta component since 4.12
  * (charts.css) — the .stat-value/.stat-trend placeholder styles are gone. */
 
-/* --- HRV / RHR combo chart placeholders + legend swatches --- */
-.combo-chart-placeholder {
-  height: 100%;
-  box-sizing: border-box;
-  border-radius: var(--radius-md);
-  border: 1px dashed var(--color-border);
-  background: var(--color-surface-glass);
-}
+/* --- HRV / RHR combo chart legend swatches --- */
+/* .combo-chart-placeholder removed (4.15) — both HRV (4.3) and RHR (4.15)
+ * combo charts are now real components; no placeholder consumers remain. */
 
 .legend-item {
   display: inline-flex;

@@ -11,6 +11,7 @@ import {
   HrvBaselineComboChart,
   ProgressRing,
   RecoveryStrainComboChart,
+  RhrBaselineComboChart,
   Sparkline,
   StackedBarChart,
   StatDelta,
@@ -292,6 +293,75 @@ function HrvBaselineTile({
         data={points}
         title="HRV over time"
         tableCaption={`Daily HRV in ms with a 7-day rolling baseline, last ${rangeDays} days`}
+      />
+    </ChartContainer>
+  );
+}
+
+// --- Phase 4.15 — RHR-over-rolling-baseline combo chart tile ---------------
+
+/**
+ * Bento RHR tile (§4: `restingHeartRate`, chart-7 actual / chart-4 baseline —
+ * the RHR sibling of 4.3's HRV chart, same shared token pair per design.md
+ * §1's "HRV/RHR sharing" note). Replaces the static `.combo-chart-placeholder`
+ * that previously rendered here with legend copy that read "Ideal RHR" — that
+ * copy was never accurate (no population study backs it; design.md §4's
+ * locked ideal-band methodology is deferred to Phase 5) and is corrected to
+ * "Recent baseline" here, matching 4.3's HRV tile precedent exactly.
+ *
+ * Status mapping matches HrvBaselineTile/RecoveryStrainTile EXACTLY (NOT
+ * SkinTempTile's): 401 or a ready fetch with no RHR in the window → 'empty';
+ * loading/error pass through. Unlike skin temp, a window with zero scored RHR
+ * means there's genuinely nothing to show, so the connect/no-data empty state
+ * is the honest read. (buildDailySeries emits a point for every day, so
+ * `points.length === 0` is never the "no data" signal.)
+ */
+function RhrBaselineTile({
+  series,
+  rangeDays,
+}: {
+  series: DailySeriesState;
+  rangeDays: RangeDays;
+}) {
+  const points = series.status === 'ready' ? series.points : [];
+  const hasData = points.some((p) => p.restingHeartRate != null);
+  const status: ChartStatus =
+    series.status === 'unauthenticated' || (series.status === 'ready' && !hasData)
+      ? 'empty'
+      : series.status;
+  return (
+    <ChartContainer
+      className="bento-rhr"
+      title="RHR over time"
+      bodyHeight={128}
+      status={status}
+      loadingLabel="Loading your RHR…"
+      emptyMessage={
+        series.status === 'unauthenticated'
+          ? 'Connect your WHOOP account to see your RHR.'
+          : `No RHR data in the last ${rangeDays} days — run a sync, then refresh.`
+      }
+      errorMessage="Couldn’t load RHR. Refresh to try again."
+      legend={
+        <>
+          <span className="legend-item">
+            <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
+            Actual RHR
+          </span>
+          <span className="legend-item">
+            {/* Rolling baseline, NOT a population "ideal" band (that's deferred
+                to Phase 5) — the swatch keeps the chart-4 --color-chart-4 token,
+                the label tells the honest story (4.3 precedent). */}
+            <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
+            Recent baseline
+          </span>
+        </>
+      }
+    >
+      <RhrBaselineComboChart
+        data={points}
+        title="RHR over time"
+        tableCaption={`Daily RHR in BPM with a 7-day rolling baseline, last ${rangeDays} days`}
       />
     </ChartContainer>
   );
@@ -1045,29 +1115,7 @@ function App() {
 
           <HrvBaselineTile series={dailySeries} rangeDays={rangeDays} />
 
-          <ChartContainer
-            className="bento-rhr"
-            title="RHR over time"
-            bodyHeight={128}
-            legend={
-              <>
-                <span className="legend-item">
-                  <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
-                  Actual RHR
-                </span>
-                <span className="legend-item">
-                  <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
-                  Ideal RHR
-                </span>
-              </>
-            }
-          >
-            <div
-              className="combo-chart-placeholder"
-              role="img"
-              aria-label="RHR over time, no data yet"
-            />
-          </ChartContainer>
+          <RhrBaselineTile series={dailySeries} rangeDays={rangeDays} />
         </section>
 
         <SleepStagesTile />
