@@ -116,6 +116,7 @@ order by tablename;
 ```
 
 Expected rows (all `rowsecurity = true`): `daily_questionnaire`,
+`user_settings` (added by `0004_daily_questionnaire_schema.sql`, Phase 5.1),
 `whoop_cycles`, `whoop_recovery`, `whoop_sleep`, `whoop_tokens`,
 `whoop_workouts`. You can also confirm visually in **Table Editor** (each table
 shows an "RLS enabled" badge). There are intentionally **no RLS policies** yet —
