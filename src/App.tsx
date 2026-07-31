@@ -5,6 +5,7 @@ import { Card } from './components/Card';
 import { Button } from './components/Button';
 import { RangeToggle, type RangeToggleOption } from './components/RangeToggle';
 import { ChartContainer, type ChartStatus } from './components/ChartContainer';
+import { JournalForm } from './components/JournalForm';
 import { LoadingState, ErrorState } from './components/states';
 import {
   DotMatrix,
@@ -22,6 +23,7 @@ import { baselineDelta } from './lib/stats';
 import { useSleepStages } from './hooks/useSleepStages';
 import { useDailySeries, type DailySeriesState } from './hooks/useDailySeries';
 import type { DailyMetricPoint, SleepStageBreakdownPoint } from '../api/_lib/transforms';
+import type { JournalAnswers } from '../api/_lib/journal-types';
 import { utcFormat } from 'd3-time-format';
 
 // A WHOOP provider error forwarded by /api/callback via query params.
@@ -831,6 +833,59 @@ function PeriodMeterTile({
   );
 }
 
+/**
+ * Bento daily-journal tile (Phase 5.2) — replaces the static stub list that
+ * stood here since 3.3. `JournalForm` owns every control, all validation and
+ * the whole null discipline; this tile owns only WHERE the answers come from
+ * and go, which is the seam 5.3 replaces.
+ *
+ * PERSISTENCE IS A STUB: answers live in the `useState` below for the current
+ * session only and are gone on reload. "Edit today" is real within a session —
+ * submitting re-seeds `initialAnswers`, so the form re-opens showing what was
+ * last entered — but nothing is written anywhere yet.
+ */
+function JournalTile() {
+  const [answers, setAnswers] = useState<JournalAnswers | undefined>(undefined);
+
+  // TODO(5.3) — STORAGE SEAM. Everything the real wiring replaces is in this
+  // component; JournalForm itself needs no change. Specifically:
+  //   1. LOAD: on mount, GET the entry for `day` (one row, `unique (user_id,
+  //      day)`) and feed it to `initialAnswers`. Hold it in state so the
+  //      reference stays stable — the form re-seeds when that reference
+  //      changes, which is exactly how an async load reaches it, but an object
+  //      rebuilt inline every render would wipe in-progress typing. While the
+  //      request is in flight pass ChartContainer `status="loading"`; on 401 /
+  //      no session pass `status="empty"` (the 4.9 rule).
+  //   2. SAVE: make handleSave await a real upsert instead of setState, and
+  //      pass the two props JournalForm already accepts but this stub leaves
+  //      unset — `submitting` (in-flight, disables the button) and
+  //      `submitError` (rendered as the shell's ErrorState). Keep the local
+  //      setAnswers call after a successful write so the form stays in sync.
+  //   3. Drop the `subtitle` warning below once answers actually survive a
+  //      reload — it exists to stop this stub from lying to the user.
+  //   4. Phase 5.3+ also owns the once-only "typical cycle length" prompt
+  //      (ROADMAP 5.1 constraint 2) — see the TODO at the `period` control in
+  //      JournalForm.tsx, and wire its answer into PeriodMeterTile's
+  //      `typicalCycleLength` prop UNRESOLVED (cycleState owns the precedence).
+  function handleSave(next: JournalAnswers) {
+    setAnswers(next);
+  }
+
+  return (
+    <ChartContainer
+      className="bento-journal"
+      title="Daily journal"
+      subtitle={
+        <span className="journal-session-note">
+          Not stored yet — entries last until you reload (Phase 5.3)
+        </span>
+      }
+    >
+      <JournalForm day={localTodayISO()} initialAnswers={answers} onSubmit={handleSave} />
+    </ChartContainer>
+  );
+}
+
 /** Read whoop_error[...] params that /api/callback may have appended to the URL. */
 function readOAuthError(): OAuthError | null {
   const params = new URLSearchParams(window.location.search);
@@ -1083,25 +1138,7 @@ function App() {
         <section className="bento-grid" aria-label="Charts">
           <PeriodMeterTile />
 
-          <ChartContainer
-            className="bento-journal"
-            title="Daily journal"
-            subtitle={<span className="journal-stub">Stub — Phase 5, not yet built</span>}
-          >
-            <ul className="journal-stub-list" aria-hidden="true">
-              <li>Hydrated</li>
-              <li>Cramps</li>
-              <li>Period</li>
-              <li>Discharge</li>
-              <li>Afternoon snack</li>
-              <li>Traveled</li>
-              <li>Caffeine</li>
-              <li>Alcohol</li>
-            </ul>
-            <p className="journal-stub-note">
-              No data source yet — the Phase 5 questionnaire hasn't been built.
-            </p>
-          </ChartContainer>
+          <JournalTile />
 
           <RecoveryRingTile series={ringSeries} />
 

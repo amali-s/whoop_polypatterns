@@ -183,7 +183,8 @@
 }
 
 .ui-input,
-.ui-select {
+.ui-select,
+.ui-textarea {
   box-sizing: border-box;
   width: 100%;
   /* Task 3.4: 44px min tap target for the Phase 5 form controls, and a
@@ -207,8 +208,18 @@
   }
 }
 
-.ui-input::placeholder {
+.ui-input::placeholder,
+.ui-textarea::placeholder {
   color: var(--color-muted);
+}
+
+/* Multi-line variant (Phase 5.2 journal notes): same control skin, but it
+ * grows with its rows and only resizes vertically — horizontal resize would
+ * let it escape the bento tile it lives in. */
+.ui-textarea {
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.4;
 }
 
 /* --- RangeToggle: segmented control (Phase 4.14) --- */
@@ -286,6 +297,128 @@
 
 @media (prefers-reduced-motion: reduce) {
   .range-toggle-option {
+    transition: none;
+  }
+}
+
+/* --- JournalForm: the daily questionnaire (Phase 5.2) --- */
+/* Lives in a bento tile that is a NARROW COLUMN at tablet+ (`journal` spans
+ * three rows of the 1.1fr first column, ~230px inside a 640px grid), so every
+ * group is a wrapping flex row rather than a fixed n-across strip — the chips
+ * reflow to one per line instead of overflowing the tile. The locked
+ * grid-template-areas (design.md §2) were deliberately NOT widened for this. */
+.journal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.journal-day {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.journal-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+/* Fieldsets carry a browser default border/margin/padding that would draw a
+ * box around every question; the group is delineated by its legend instead. */
+.journal-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.journal-legend {
+  padding: 0;
+}
+
+.journal-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Aero pill in .range-toggle-option's register, but sized as a standalone
+ * chip: 44×44px is met by the control itself, so no ::after hit extension.
+ * Border is --color-muted (5.42:1) — §5.1 forbids --color-border as a
+ * control's only boundary. */
+.journal-choice {
+  min-height: 44px;
+  min-width: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-muted);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-inset-gloss);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    color 0.2s;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  &:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent-strong);
+  }
+}
+
+/* Selection is additionally conveyed by aria-checked, so the accent fill is
+ * never the only signal (the .range-toggle-option-selected precedent). */
+.journal-choice-selected {
+  border-color: var(--color-accent-strong);
+  background: var(--color-accent);
+  color: var(--color-surface);
+
+  &:hover {
+    background: var(--color-accent-strong);
+    color: var(--color-surface);
+  }
+}
+
+/* --color-negative (#c93848) is AA text-safe on the card surface — unlike
+ * --color-warning, which §5.1 restricts to fills. */
+.journal-error {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-negative);
+}
+
+.journal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.journal-status {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .journal-choice {
     transition: none;
   }
 }

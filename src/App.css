@@ -177,29 +177,17 @@
  * the confirmed shared skin-temp / period-meter token (design.md §1 mapping —
  * the two never co-occur in one chart); DotMatrix defaults to it. */
 
-/* --- Daily journal (stub, Phase 5 has no data source yet) --- */
-.journal-stub {
+/* --- Daily journal --- */
+/* Real form since 5.2 (JournalForm, components.css) — the .journal-stub-list /
+ * .journal-stub-note placeholder styles are gone (the 4.9–4.11 dead-CSS
+ * precedent). What survives is the subtitle tag, RENAMED from .journal-stub
+ * because it no longer means "not built": the form works, but 5.3 hasn't
+ * shipped storage, so entries don't outlive a reload and the tile has to say
+ * so. Delete this rule with the subtitle when 5.3 lands. */
+.journal-session-note {
   /* Task 3.4: --color-warning is 2.03:1 on the card surface — fills/dots
    * only; warning-toned TEXT uses the darker AA-passing companion token. */
   color: var(--color-warning-text);
-}
-
-.journal-stub-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--color-muted);
-}
-
-.journal-stub-note {
-  margin-top: auto;
-  font-size: var(--text-xs);
-  color: var(--color-muted);
-  font-style: italic;
 }
 
 /* Sleep / Calories stat tiles: real StatDelta component since 4.12
