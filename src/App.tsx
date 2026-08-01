@@ -6,6 +6,7 @@ import { Button } from './components/Button';
 import { RangeToggle, type RangeToggleOption } from './components/RangeToggle';
 import { ChartContainer, type ChartStatus } from './components/ChartContainer';
 import { JournalForm } from './components/JournalForm';
+import { JournalReminder } from './components/JournalReminder';
 import { LoadingState, ErrorState } from './components/states';
 import {
   DotMatrix,
@@ -21,6 +22,8 @@ import {
 import { cycleState, type PeriodLog } from './lib/cycle';
 import { baselineDelta } from './lib/stats';
 import { useSleepStages } from './hooks/useSleepStages';
+import { useJournalReminder } from './hooks/useJournalReminder';
+import type { JournalDayStatus } from './lib/reminder';
 import { useDailySeries, type DailySeriesState } from './hooks/useDailySeries';
 import type { DailyMetricPoint, SleepStageBreakdownPoint } from '../api/_lib/transforms';
 import type { JournalAnswers } from '../api/_lib/journal-types';
@@ -889,6 +892,11 @@ function saveErrorMessage(status: number): string {
  * changes, so an object rebuilt inline here would wipe in-progress typing on
  * every keystroke elsewhere in the tree.
  *
+ * Phase 5.4 adds the reminder layer on top, without touching either side of the
+ * 5.2 seam: `useJournalReminder` reads the SAME mount-time GET below (no second
+ * endpoint, no second request) and `JournalReminder` renders the opt-in / off
+ * switch above the form. All of its rules live in `src/lib/reminder.ts`.
+ *
  * TODO(5.3+) — the once-only "typical cycle length" prompt (ROADMAP 5.1
  * constraint 2) is still unbuilt and out of scope here: it writes
  * `user_settings` and must first READ `typical_cycle_length_asked_at`, so it
@@ -899,6 +907,12 @@ function saveErrorMessage(status: number): string {
 function JournalTile() {
   const day = localTodayISO();
   const [answers, setAnswers] = useState<JournalAnswers | undefined>(undefined);
+  // Does today's row EXIST? Deliberately not derived from `answers`: a saved
+  // entry whose values match what was already on screen leaves `answers`
+  // untouched (see handleSave), and an entry of all-nulls is a real logged day
+  // that happens to look like a blank one. `null` = we don't know yet — the
+  // reminder never guesses from that (5.4).
+  const [logged, setLogged] = useState<boolean | null>(null);
   // 'empty' is the 4.9 no-session convention every other tile uses for a 401;
   // 'error' covers a failed/unparseable load (including the 503 waking case —
   // a reload once the database is back is enough for a tile).
@@ -930,6 +944,7 @@ function JournalTile() {
           // `entry: null` is the normal "nothing logged today yet" answer, not
           // a failure — the form opens blank, every field unanswered.
           setAnswers(body.entry ?? undefined);
+          setLogged(body.entry != null);
           setStatus('ready');
         }
       } catch {
@@ -971,6 +986,9 @@ function JournalTile() {
       // confirmation a successful write produces for no gain.
       const stored = body.entry ?? next;
       setAnswers((prev) => (journalAnswersEqual(stored, next) ? prev : stored));
+      // The row now exists whatever it contains — 5.4's reminder must not fire
+      // for a day the user just logged in this session.
+      setLogged(true);
     } catch (err) {
       setSubmitError(message);
       // Rethrow: JournalForm catches this and withholds its "Saved." status,
@@ -981,6 +999,13 @@ function JournalTile() {
     }
   }
 
+  // 5.4 — 'unknown' while loading, on a 401, and after a failed load: three
+  // states in which we cannot honestly say the day is unlogged, so the reminder
+  // stays silent in all of them.
+  const dayStatus: JournalDayStatus =
+    logged === null ? 'unknown' : logged ? 'logged' : 'not-logged';
+  const reminder = useJournalReminder(dayStatus, day);
+
   return (
     <ChartContainer
       className="bento-journal"
@@ -990,6 +1015,13 @@ function JournalTile() {
       emptyMessage="Connect your WHOOP account to log your day."
       errorMessage="Couldn’t load today’s journal. Refresh to try again."
     >
+      <JournalReminder
+        prompt={reminder.prompt}
+        regionRef={reminder.regionRef}
+        onEnable={reminder.enable}
+        onDismiss={reminder.dismiss}
+        onDisable={reminder.disable}
+      />
       <JournalForm
         day={day}
         initialAnswers={answers}

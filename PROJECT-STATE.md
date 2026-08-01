@@ -1,5 +1,123 @@
 # Project state
 
+## Roadmap status (Task 5.4 — journal reminders) — ✅ COMPLETE (in-tab only; every branch mock-verified in the browser, real notifications NOT verified) (2026-07-31)
+
+**What's done**
+
+- **`src/lib/reminder.ts` (new)** — the entire reminder policy as ONE pure
+  function, `reminderDecision({ today, dayStatus, permission, preference })`
+  → `{ notify, prompt }`. Import-free and browser-free (the `cycle.ts` /
+  `stats.ts` contract). That split exists for one reason: the Notification API
+  can't be exercised in Node, so the RULES were pulled out of it and the shell
+  around them kept thin enough to read.
+- **`src/hooks/useJournalReminder.ts` (new)** — the browser half: reads
+  `Notification.permission`, reads/writes the localStorage preference, raises
+  the notification, and owns the focus ref a clicked notification lands on.
+  It adds no rules of its own.
+- **`src/components/JournalReminder.tsx` (new)** — the control: opt-in, off
+  switch, blocked note, or nothing. Also decides nothing.
+- **`scripts/test-reminder.mjs` (new, `npm run test:reminder`)** — 26 checks,
+  including an exhaustive 144-case sweep (3 dayStatus × 4 permission × 12
+  preferences) over three invariants.
+- **`src/App.tsx`'s `JournalTile` wired** — reuses the mount-time
+  `GET /api/journal?day=…` it already makes; **no new endpoint, no second
+  request**. One new piece of state, `logged: boolean | null`.
+- **Untouched, on purpose:** `api/_lib/journal-types.ts`, `api/journal.ts`,
+  `src/components/JournalForm.tsx`. 5.4 is a layer above the 5.2 seam and
+  beside the 5.3 caller, not a change to how the journal is asked or stored.
+  No migration, no env var, no dependency.
+
+**The four rules (and the failure each prevents)**
+
+1. **Never remind someone who already logged.** `dayStatus` must be an
+   affirmative `'not-logged'`; `'unknown'` (loading / 401 / failed load)
+   produces no notification and no banner — "we couldn't tell" is not "you
+   haven't logged", the same null discipline 5.1–5.3 run on.
+2. **Never auto-request permission on load.** `requestPermission()` is called
+   in exactly one place: the opt-in button's click handler. The browser prompt
+   is a one-shot resource and spending it unasked usually earns a permanent
+   `denied`.
+3. **Never nag when the browser said no.** `denied` shows one explanatory line
+   ONLY to someone who opted in, dismissible for good; a `denied` browser that
+   never asked sees nothing.
+4. **At most one notification per calendar day** — a stored `lastNotifiedDay`
+   compared to today, not a timer or a render count, so a reload, a re-render
+   or a second tab can't double-nudge.
+
+**Two decisions worth knowing about**
+
+- **The stored opt-in is a SECOND gate on top of the browser permission, not a
+  mirror of it.** Read literally the brief would fire on `permission ===
+'granted'` alone, which makes the persisted opt-in decorative (the browser
+  already persists permission). Shipped as both, because an origin can hold
+  that permission for an unrelated reason and because revoking it is buried in
+  site settings — without an app-level switch, the only way to stop the nudges
+  is a trip through browser settings. Cost, stated: an already-granted browser
+  still presses the opt-in once. Reversing it is the `!preference.optedIn`
+  branch plus one test case.
+- **There is an OFF switch (`prompt: 'on'`), which the brief didn't ask for**
+  — an opt-in with no way back is its own dark pattern, and it doubles as the
+  deep-link focus target. Turning it off hides the control for good; **with no
+  settings screen, re-enabling means clearing site data.** That's the honest
+  cost of "dismissed means stop asking".
+
+**`logged` is not derived from `answers`, deliberately**
+
+A save whose values match what's on screen leaves `answers` untouched by
+design (5.3's `journalAnswersEqual` deviation), and an all-null entry is a real
+logged day that looks exactly like a blank one. `logged` is set from the load
+(`entry != null`) and set true after a successful upsert — so saving today
+makes the reminder vanish immediately, browser-verified.
+
+**Verified (mock preview, 2026-07-31)**
+
+- Gates: `npm run lint`, `npx tsc -b`, `npm run typecheck:api`,
+  `npm run format:check`, `npm run test:reminder` all pass;
+  `test:journal`, `test:cycle`, `test:transforms`, `test:stats` re-run clean.
+- In-browser via a temporary `vite.config.ts` mock (the 4.1/5.3 trick — an
+  `/api/journal` middleware plus an index.html shim faking `Notification`,
+  since the preview browser's real permission is fixed at `denied`;
+  **reverted afterwards — `git diff vite.config.ts` is empty**): opt-in banner
+  on `default` with nothing fired; pressing it stores `optedIn: true` and, once
+  granted, the region switches in place to the "on" copy with **exactly one**
+  notification constructed (title "Log today's WHOOP journal", tag
+  `whoop-journal-2026-07-31`) and `lastNotifiedDay` recorded; a reload with
+  that day stored fires **zero**; a logged day fires zero, shows nothing and
+  leaves `lastNotifiedDay` untouched; `denied` + opted in → the blocked line,
+  `denied` alone and `unsupported` → nothing; the notification's click handler
+  scrolled (0 → 1815) and moved focus onto the region; "Turn reminders off"
+  empties it (`display: none`, height 0, no leftover flex gap); saving the form
+  makes it vanish while 5.3's "Saved." still appears; no console errors; no
+  horizontal overflow at 375px, where both buttons wrap and keep 44px targets.
+
+**Still open / flagged**
+
+- **NOT live-verified, and only partly verifiable here.** The real permission
+  prompt, a real OS notification, its click in the real notification centre,
+  and the midnight rollover have never run — every branch above was reached
+  through a faked `Notification`, because the preview browser's permission is
+  permanently `denied`. Confirm on prod: opt in, leave the tab open on an
+  unlogged day, click the notification.
+- **Expected behaviours, not bugs:** a tab left open across midnight won't
+  re-check until a reload (`today` is computed when the tile mounts); Chrome on
+  **Android** throws on the `Notification` constructor and needs the
+  service-worker path (ROADMAP 5.6) — the throw is caught, so the tile is
+  unaffected and the day is marked attempted rather than retried every reload.
+- **Closed-browser push is ROADMAP 5.6, not built** — service worker + VAPID
+  keys + a subscriptions table + a server-side scheduler. Half-building it
+  would look identical to a working reminder right up to the moment it never
+  fires.
+- Everything still open from 5.3 stands: no row has been written to the live
+  `daily_questionnaire` yet, the once-only cycle-length prompt is unbuilt, the
+  period meter still renders `no-data`, and 5.2's desktop bento-layout question
+  is still your call.
+
+**What needs human action**
+
+- **Nothing to apply** — no migration, no env var, no dependency.
+- **Commit + push** (pushing `main` auto-deploys Vercel production), then do
+  the live check above.
+
 ## Roadmap status (Task 5.3 — journal storage) — ✅ COMPLETE (mock-verified in the browser; NOT yet live-verified against prod) (2026-07-31)
 
 **What's done**

@@ -18,6 +18,7 @@
     "test:transforms": "node scripts/test-transforms.mjs",
     "test:cycle": "node scripts/test-cycle.mjs",
     "test:journal": "node scripts/test-journal.mjs",
+    "test:reminder": "node scripts/test-reminder.mjs",
     "test:stats": "node scripts/test-stats.mjs",
     "test:ratelimit": "node scripts/test-ratelimit.mjs",
     "test:whoop": "node --env-file=.env.local scripts/test-whoop.mjs",

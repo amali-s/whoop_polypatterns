@@ -417,6 +417,46 @@
   color: var(--color-muted);
 }
 
+/* Phase 5.4 reminder region. Always in the DOM (it is a live region and the
+ * focus target a clicked notification lands on), so :empty must collapse it —
+ * .ui-chart-body is a flex column with a gap, which an empty child would
+ * otherwise still open up. */
+.journal-reminder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+
+  /* Focused only programmatically (tabindex -1, never in the tab order), so
+   * :focus rather than :focus-visible — the ring should show whenever we
+   * deliberately move focus here from a notification click. Same 2px accent
+   * outline as every other focusable thing in the shell (§5.1). */
+  &:focus {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+.journal-reminder:empty {
+  display: none;
+}
+
+.journal-reminder-text {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-text);
+}
+
+.journal-reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .journal-choice {
     transition: none;
