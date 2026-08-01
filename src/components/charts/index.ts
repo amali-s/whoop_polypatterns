@@ -31,4 +31,6 @@ export { Sparkline } from './Sparkline';
 export type { SparklineProps } from './Sparkline';
 export { StatDelta } from './StatDelta';
 export type { StatDeltaProps } from './StatDelta';
+export { TrendArrow, TrendIndicator } from './TrendIndicator';
+export type { TrendArrowProps, TrendIndicatorProps } from './TrendIndicator';
 import './charts.css';

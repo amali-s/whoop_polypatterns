@@ -46,15 +46,23 @@
   gap: var(--space-2) var(--space-3);
 }
 
+/* PILL REMOVED 2026-08-01 (confirmed): the dot and the label stay, the
+ * container around them goes — no fill, no border, no pill radius, no inset
+ * gloss, no horizontal padding. What remains is the flex row that keeps the
+ * dot beside its text.
+ *
+ * Applied to the chip for EVERY connection state, not just "Connected" — the
+ * request named the Connected pill, but this is one element whose label
+ * changes, so keeping a pill for "Not connected" and dropping it for
+ * "Connected" would make the header flicker between two visual treatments as
+ * the session resolves. Flagged as the coherent reading.
+ *
+ * The dot is decorative (`aria-hidden`) and the state is carried by the
+ * adjacent real text, so nothing about what a screen reader hears changed. */
 .status-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-inset-gloss);
   font-size: var(--text-sm);
   color: var(--color-muted);
   white-space: nowrap;
@@ -128,6 +136,30 @@
   margin-inline: auto;
 }
 
+/* ── Mobile layout lock under pinch-zoom (task 1, 2026-08-01) ──────────────
+ * REQUIREMENT: pinch-zooming out on a phone must NOT flip the layout to a
+ * wider breakpoint. The zoom GESTURE stays enabled — index.html deliberately
+ * keeps `width=device-width, initial-scale=1.0` with no `user-scalable=no`
+ * and no `maximum-scale`, because disabling it is a WCAG 1.4.4 failure.
+ *
+ * WHY THIS IS ALREADY SAFE, and what keeps it safe:
+ *  1. `@media (min-width: …)` is evaluated against the LAYOUT viewport (the
+ *     initial containing block), which `width=device-width` pins to the
+ *     device width. Pinch-zoom only moves/scales the VISUAL viewport, so it
+ *     cannot change what this query — or the `max-width: 1024px` one in
+ *     index.css — matches. Verified at 375px: matchMedia('(min-width:640px)')
+ *     stays false.
+ *  2. There is NO JS breakpoint logic in this app (audited: the only
+ *     matchMedia call is prefers-reduced-motion in charts/motion.ts, and
+ *     useChartDimensions measures its own element box via ResizeObserver, not
+ *     any viewport global). If one is ever added it MUST read
+ *     `window.visualViewport` (or documentElement.clientWidth) and never
+ *     `window.innerWidth`, which includes zoom/overflow effects.
+ *  3. Horizontal overflow is the one thing that genuinely inflates the width
+ *     signals. Before this pass the sr-only chart data tables overflowed the
+ *     page (document.scrollWidth 787px at a 375px viewport, and
+ *     window.innerWidth read 787 — a "tablet" width); charts.css's
+ *     .sr-only-table fix brings both back to 375. Keep it that way. */
 @media (min-width: 640px) {
   .bento-grid {
     grid-template-columns: 1.1fr 1fr 1fr;
@@ -202,15 +234,26 @@
   width: 10px;
   height: 10px;
   border-radius: 2px;
-  /* Task 3.4: the LOCKED chart palette can't be tinted, and some hues
-   * (chart-4 pale mustard, 1.60:1) can't meet the 3:1 non-text boundary
-   * against the white card on their own — so every swatch gets a muted
-   * hairline that delineates it regardless of fill. */
+  /* Task 3.4: some chart hues can't meet the 3:1 non-text boundary against
+   * the white card on their own, so a swatch gets a muted hairline that
+   * delineates it regardless of fill. STILL THE DEFAULT — the
+   * hydration/recovery matrix's legend (App.tsx) relies on it, since one of
+   * its three swatches is --color-border itself. */
   border: 1px solid var(--color-muted);
 }
 
+/* 2026-08-01: the four redesigned charts (sleep stages, recovery-vs-strain,
+ * HRV, RHR) drop the hairline at the user's direction — their new hues read
+ * as distinct blocks on the card without it, and every series is named in
+ * real text beside its swatch (§5.2 rule 6), so the swatch is decoration, not
+ * the encoding. Applied per-swatch rather than by flipping the default, so
+ * the hydration legend above keeps the border it genuinely needs. */
+.legend-swatch-plain {
+  border: 0;
+}
+
 /* Chart-7 / chart-4 are the confirmed shared tokens for HRV+RHR
- * "actual" and "ideal" respectively (design.md §1 mapping). */
+ * "actual" and "recent baseline" respectively (design.md §1 mapping). */
 .legend-swatch-actual {
   background: var(--color-chart-7);
 }
@@ -221,22 +264,81 @@
 /* --- Auth card (task 3.3: now a Card on the §1 tokens; these are
  * its layout + content specifics on top of the .ui-card surface) --- */
 
-.auth-card {
-  align-items: center;
-  text-align: center;
-  gap: var(--space-4);
+/* RESTYLED 2026-08-01 (confirmed): no container fill, full bento-row width,
+ * smaller text, Connect action top-right.
+ *
+ * The tile still renders on `Card` (so it keeps the shell's radius and
+ * spacing vocabulary) but every surface treatment the card supplies —
+ * background, border, drop shadow, inset gloss, and the ::after corner shine —
+ * is switched off here, so it reads as content sitting directly on the page
+ * gradient. `background: none` unsets BOTH layers of the card's
+ * gloss-over-translucent stack; setting just a color would leave the sheen
+ * painting over nothing.
+ *
+ * Width: 640px matches .bento-grid's own cap and centering exactly, so "full
+ * bento row width" means the same thing here as it does for a tile — not the
+ * 1200px main column, which would leave it floating wider than the grid it
+ * introduces. Was 420px.
+ *
+ * Selector is `.ui-card.auth-card`, not `.auth-card`: components.css is
+ * imported by Card.tsx and therefore injected AFTER this file, so at equal
+ * (0,1,0) specificity `.ui-card`'s background/border/shadow would win and the
+ * tile would keep its surface. Browser-verified. */
+.ui-card.auth-card {
+  align-items: stretch;
+  text-align: left;
+  gap: var(--space-3);
   width: 100%;
-  max-width: 420px;
+  max-width: 640px;
   margin-inline: auto;
+  background: none;
+  border-color: transparent;
+  box-shadow: none;
+  /* Overrides the `padding="lg"` (--space-6, 32px) the Card is still asked
+   * for. Two reasons, both consequences of losing the surface: 32px of inset
+   * makes sense INSIDE a card but reads as a stray indent once there is no
+   * card, and it left this tile's text starting 20px further right than every
+   * bento tile below it. --space-3 is the bento tiles' own padding, so the
+   * headings now line up down the page. It also buys back the width the head
+   * row needs: at 375px the 32px inset left 261px of content, 6px short of
+   * fitting "Connection" + the Connect pill on one line, so the button wrapped
+   * underneath instead of sitting top-right. Measured. */
+  padding: var(--space-3);
 }
 
+.ui-card.auth-card::after {
+  /* No corner gloss on a tile that has no surface to gloss. */
+  content: none;
+}
+
+/* Heading left, Connect action right. `space-between` + top alignment is what
+ * pins the button to the top-right corner as the body copy below grows. */
+.auth-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+/* Text size reduced (confirmed): --text-lg, down from --text-xl. */
 .auth-card h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: var(--text-xl);
+  font-size: var(--text-lg);
   font-weight: var(--weight-semibold);
   letter-spacing: normal;
   color: var(--color-text);
+}
+
+/* The rest of the tile's copy steps down with the heading. */
+.auth-card .muted,
+.auth-card .status {
+  font-size: var(--text-sm);
+}
+
+.auth-card .meta {
+  font-size: var(--text-xs);
 }
 
 .muted {

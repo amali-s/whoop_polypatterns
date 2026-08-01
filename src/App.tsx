@@ -7,6 +7,8 @@ import { RangeToggle, type RangeToggleOption } from './components/RangeToggle';
 import { ChartContainer, type ChartStatus } from './components/ChartContainer';
 import { JournalForm } from './components/JournalForm';
 import { JournalReminder } from './components/JournalReminder';
+import { JournalSummary } from './components/JournalSummary';
+import { Tearsheet } from './components/Tearsheet';
 import { LoadingState, ErrorState } from './components/states';
 import {
   DotMatrix,
@@ -18,12 +20,13 @@ import {
   Sparkline,
   StackedBarChart,
   StatDelta,
+  TrendIndicator,
   type StackedBarSeriesKey,
 } from './components/charts';
 import { cycleState, type PeriodLog } from './lib/cycle';
 import { HYDRATION_COLORS, HYDRATION_LABELS, HYDRATION_STATES } from './lib/hydration';
 import { recoveryZone } from './lib/recovery';
-import { baselineDelta } from './lib/stats';
+import { baselineDelta, type BaselineDelta } from './lib/stats';
 import { useSleepStages } from './hooks/useSleepStages';
 import { useJournalReminder } from './hooks/useJournalReminder';
 import type { JournalDayStatus } from './lib/reminder';
@@ -81,14 +84,20 @@ const SYNC_LABELS: Record<ManualSyncState, string> = {
 // has no data source yet (questionnaire is Phase 5) and is explicitly a stub.
 
 // Chart 4.1 — sleep-stage segment order (bottom-to-top: deepest at the bottom,
-// awake on top) and hue assignment. The mapping is a PROPOSAL documented in
-// design.md §4 ("Sleep-stage color mapping"), pending confirmation; the hues
-// themselves are the LOCKED §1 palette, used verbatim via their tokens.
+// awake on top) and hue assignment.
+//
+// CONFIRMED 2026-08-01, and no longer borrowed from the shared chart palette.
+// The four stages used to reuse --color-chart-5 / -2 / -1 / -4, which design.md
+// §4 flagged as a compromise ("four distinct stage hues require reusing three
+// reserved tokens"). Two of those tokens have since been repointed to other
+// metrics — chart-5 is now Strain's azure, chart-4 the HRV/RHR baseline — so
+// the borrow ended. These are the chart's OWN dedicated tokens (§1), a dark→
+// light green ramp so bar depth reads as sleep depth.
 const SLEEP_STAGE_KEYS: StackedBarSeriesKey<SleepStageBreakdownPoint>[] = [
-  { key: 'deepMinutes', label: 'Deep', color: 'var(--color-chart-5)' },
-  { key: 'remMinutes', label: 'REM', color: 'var(--color-chart-2)' },
-  { key: 'lightMinutes', label: 'Light', color: 'var(--color-chart-1)' },
-  { key: 'awakeMinutes', label: 'Awake', color: 'var(--color-chart-4)' },
+  { key: 'deepMinutes', label: 'Deep', color: 'var(--color-sleep-deep)' },
+  { key: 'remMinutes', label: 'REM', color: 'var(--color-sleep-rem)' },
+  { key: 'lightMinutes', label: 'Light', color: 'var(--color-sleep-light)' },
+  { key: 'awakeMinutes', label: 'Awake', color: 'var(--color-sleep-awake)' },
 ];
 
 const SLEEP_STAGE_DAYS = 30;
@@ -216,7 +225,7 @@ function RecoveryStrainTile({
   return (
     <ChartContainer
       title="Recovery vs. strain"
-      subtitle={`Recovery % (line, left axis) over day strain (area, right axis) — last ${rangeDays} days`}
+      subtitle={`Recovery % (left axis) and day strain (right axis) — last ${rangeDays} days`}
       status={status}
       loadingLabel="Loading your recovery and strain…"
       emptyMessage={
@@ -272,7 +281,6 @@ function HrvBaselineTile({
     <ChartContainer
       className="bento-hrv"
       title="HRV over time"
-      bodyHeight={128}
       status={status}
       loadingLabel="Loading your HRV…"
       emptyMessage={
@@ -284,14 +292,20 @@ function HrvBaselineTile({
       legend={
         <>
           <span className="legend-item">
-            <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
+            <span
+              className="legend-swatch legend-swatch-plain legend-swatch-actual"
+              aria-hidden="true"
+            />
             Actual HRV
           </span>
           <span className="legend-item">
             {/* Rolling baseline, NOT a population "ideal" band (that's deferred
                 to Phase 5) — the swatch keeps the chart-4 --color-chart-4 token,
                 the label tells the honest story. */}
-            <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
+            <span
+              className="legend-swatch legend-swatch-plain legend-swatch-ideal"
+              aria-hidden="true"
+            />
             Recent baseline
           </span>
         </>
@@ -341,7 +355,6 @@ function RhrBaselineTile({
     <ChartContainer
       className="bento-rhr"
       title="RHR over time"
-      bodyHeight={128}
       status={status}
       loadingLabel="Loading your RHR…"
       emptyMessage={
@@ -353,14 +366,20 @@ function RhrBaselineTile({
       legend={
         <>
           <span className="legend-item">
-            <span className="legend-swatch legend-swatch-actual" aria-hidden="true" />
+            <span
+              className="legend-swatch legend-swatch-plain legend-swatch-actual"
+              aria-hidden="true"
+            />
             Actual RHR
           </span>
           <span className="legend-item">
             {/* Rolling baseline, NOT a population "ideal" band (that's deferred
                 to Phase 5) — the swatch keeps the chart-4 --color-chart-4 token,
                 the label tells the honest story (4.3 precedent). */}
-            <span className="legend-swatch legend-swatch-ideal" aria-hidden="true" />
+            <span
+              className="legend-swatch legend-swatch-plain legend-swatch-ideal"
+              aria-hidden="true"
+            />
             Recent baseline
           </span>
         </>
@@ -735,11 +754,90 @@ function CaloriesStatTile({
 // --- Phase 4.9 — recovery/strain progress-ring tiles -----------------------
 
 /**
- * Window for the ring tiles' shared fetch. The rings show a single "latest
- * scored day", so a week is plenty of lookback (an unscored/in-progress
- * cycle means today is null and yesterday carries the value).
+ * Window for the ring tiles' shared fetch. WIDENED from 7 to 90 days on
+ * 2026-08-01: the rings still headline a single "latest scored day" (7 days was
+ * plenty of lookback for that), but each now also shows a 1-month AND a 3-month
+ * trailing average of its own metric, and a 3-month average cannot be computed
+ * from a 7-day window.
+ *
+ * 90 rather than a third fetch: this is the SAME series the rings already read,
+ * so widening it costs one larger response instead of adding a request (the 4.9
+ * no-duplicate-fetch rule). It is deliberately NOT wired to `rangeDays` — the
+ * two trailing windows below are fixed periods the toggle must not move, or
+ * "your 3-month average" would silently mean 30 days.
+ *
+ * KNOWN COST, flagged: when the toggle sits on "3 months" this request and
+ * App's range-driven one ask for the identical `?days=90`, so the browser
+ * issues two equivalent GETs. The request COUNT is unchanged from before this
+ * pass (it has always been two), and de-duplicating them would mean collapsing
+ * the rings and the range-driven tiles onto one fetch — a change to the
+ * confirmed 4.14 toggle behavior, which is out of scope here.
  */
-const RING_DAYS = 7;
+const RING_DAYS = 90;
+
+/**
+ * The two trailing windows the ring tiles compare today against. Day counts,
+ * with labels that say "month" — the same approximation RANGE_OPTIONS already
+ * makes for the toggle, and the labels never claim an exact day count.
+ */
+const RING_TREND_WINDOWS = [
+  { days: 30, label: '1-month average' },
+  { days: 90, label: '3-month average' },
+] as const;
+
+/**
+ * Non-null prior days required before a ring shows a trailing comparison.
+ * Matches BASELINE_MIN_SAMPLES (10) and for the same reason: a headline
+ * "12% above your average" computed off three days would be dishonest. It
+ * stays FIXED across both windows — a floor on confidence, not a fraction of
+ * the window (the 4.14 decision).
+ */
+const RING_TREND_MIN_SAMPLES = BASELINE_MIN_SAMPLES;
+
+/**
+ * Both trailing comparisons for one ring metric, in RING_TREND_WINDOWS order.
+ *
+ * Uses `baselineDelta` (src/lib/stats.ts), NOT `buildRollingBaseline`
+ * (api/_lib/transforms.ts) — FLAGGED, since the brief named the latter. They
+ * are two halves of the same trailing-average infrastructure and this is the
+ * half built for this exact question: `baselineDelta` compares ONE headline
+ * value against the mean of the prior days in a trailing window, EXCLUDES that
+ * day from its own baseline (a day must not inflate the average it is measured
+ * against), and gates on a minimum sample count. `buildRollingBaseline` emits a
+ * smoothed mean for EVERY day and deliberately INCLUDES the current day —
+ * correct for the HRV/RHR baseline areas it feeds, wrong for "today vs. my
+ * normal". Its own module header spells out that divergence.
+ */
+function ringTrends(
+  points: readonly DailyMetricPoint[],
+  metric: (p: DailyMetricPoint) => number | null,
+): BaselineDelta[] {
+  // Slice to end on the latest SCORED day so baselineDelta treats that day as
+  // "today" — otherwise an unscored today reads as `no-value` and the ring
+  // would show a number with no comparison beside it.
+  const scored = latestScoredSlice(points, metric);
+  if (!scored) {
+    return RING_TREND_WINDOWS.map(() => ({ kind: 'no-value' }) as const);
+  }
+  return RING_TREND_WINDOWS.map((window) =>
+    baselineDelta(scored, metric, {
+      windowDays: window.days,
+      minSamples: RING_TREND_MIN_SAMPLES,
+      excludeToday: true,
+    }),
+  );
+}
+
+/** The two trailing-average lines under a ring, rendered in window order. */
+function RingTrends({ trends }: { trends: BaselineDelta[] }) {
+  return (
+    <div className="ring-trends">
+      {RING_TREND_WINDOWS.map((window, i) => (
+        <TrendIndicator key={window.days} delta={trends[i]} windowLabel={window.label} />
+      ))}
+    </div>
+  );
+}
 
 /**
  * WHOOP recovery zones (verified cutoffs + their fill-safe hues) MOVED to
@@ -794,14 +892,21 @@ function ringStatus(series: DailySeriesState): ChartStatus {
  * Both ring tiles receive the SAME series from one useDailySeries call in
  * App — they read different fields of identical rows, and per-tile hooks
  * (the SleepStagesTile pattern) would issue two identical fetches. The same
- * rule drives App's second, 30-day fetch, shared by RecoveryStrainTile and
- * SkinTempTile (4.11); RING_DAYS stays a separate 7-day window because the
- * rings genuinely need less lookback.
+ * rule drives App's second, range-driven fetch, shared by RecoveryStrainTile
+ * and SkinTempTile (4.11); RING_DAYS stays its OWN window (90 days as of
+ * 2026-08-01) because the ring trends are fixed periods the toggle must not
+ * move — see RING_DAYS.
+ *
+ * Below the ring: a 1-month and a 3-month trailing average of RECOVERY, with
+ * the same ▲/▼ indicator the Sleep stat tile uses (TrendIndicator).
  */
 function RecoveryRingTile({ series }: { series: DailySeriesState }) {
-  const latest =
-    series.status === 'ready' ? latestScored(series.points, (p) => p.recoveryScore) : null;
+  const points = series.status === 'ready' ? series.points : [];
+  const latest = series.status === 'ready' ? latestScored(points, (p) => p.recoveryScore) : null;
   const zone = latest ? recoveryZone(latest.value) : null;
+  // Recovery compared against RECOVERY's own trailing averages. The two ring
+  // tiles never cross-wire: each reads the field it displays.
+  const trends = ringTrends(points, (p) => p.recoveryScore);
   return (
     <ChartContainer
       className="bento-recovery"
@@ -822,13 +927,17 @@ function RecoveryRingTile({ series }: { series: DailySeriesState }) {
       ) : (
         <ProgressRing fraction={0} noData title="Recovery" desc="No data yet." valueLabel="—" />
       )}
+      <RingTrends trends={trends} />
     </ChartContainer>
   );
 }
 
-/** Bento strain tile (§4: `strain` on WHOOP's 0–21 scale, chart-5 dark blue). */
+/** Bento strain tile (§4: `strain` on WHOOP's 0–21 scale, chart-5 azure). */
 function StrainRingTile({ series }: { series: DailySeriesState }) {
-  const latest = series.status === 'ready' ? latestScored(series.points, (p) => p.strain) : null;
+  const points = series.status === 'ready' ? series.points : [];
+  const latest = series.status === 'ready' ? latestScored(points, (p) => p.strain) : null;
+  // Strain vs. STRAIN's own averages — never recovery's.
+  const trends = ringTrends(points, (p) => p.strain);
   return (
     <ChartContainer
       className="bento-strain"
@@ -849,6 +958,7 @@ function StrainRingTile({ series }: { series: DailySeriesState }) {
       ) : (
         <ProgressRing fraction={0} noData title="Strain" desc="No data yet." valueLabel="—" />
       )}
+      <RingTrends trends={trends} />
     </ChartContainer>
   );
 }
@@ -928,37 +1038,11 @@ function PeriodMeterTile({
   );
 }
 
-/**
- * Bento daily-journal tile (Phase 5.2) — replaces the static stub list that
- * stood here since 3.3. `JournalForm` owns every control, all validation and
- * the whole null discipline; this tile owns only WHERE the answers come from
- * and go, which is the seam 5.3 replaces.
- *
- * PERSISTENCE IS A STUB: answers live in the `useState` below for the current
- * session only and are gone on reload. "Edit today" is real within a session —
- * submitting re-seeds `initialAnswers`, so the form re-opens showing what was
- * last entered — but nothing is written anywhere yet.
- */
-/**
- * Do two answer sets carry the same values? Compared field by field (with the
- * untyped `extra` serialized) rather than by reference, because a save
- * round-trip always rebuilds the object — what the tile needs to know is
- * whether the SERVER changed anything, not whether the identity changed.
- */
-function journalAnswersEqual(a: JournalAnswers, b: JournalAnswers): boolean {
-  return (
-    a.hydrated === b.hydrated &&
-    a.cramps === b.cramps &&
-    a.period === b.period &&
-    a.discharge === b.discharge &&
-    a.afternoon_snack === b.afternoon_snack &&
-    a.traveled === b.traveled &&
-    a.caffeine_servings === b.caffeine_servings &&
-    a.alcohol_drinks === b.alcohol_drinks &&
-    a.notes === b.notes &&
-    JSON.stringify(a.extra) === JSON.stringify(b.extra)
-  );
-}
+/* `journalAnswersEqual` lived here through 5.4 and was REMOVED 2026-08-01: its
+ * only caller was handleSave's conditional `setAnswers`, which now
+ * unconditionally adopts the stored row (see the comment there for why). Dead
+ * code, deleted rather than left dangling — the 4.9-4.11 precedent for retired
+ * helpers. */
 
 /** User-facing reason a save failed, by response status. Deliberately vague
  *  about the server side (the API's own bodies are generic too) and specific
@@ -995,9 +1079,42 @@ function saveErrorMessage(status: number): string {
  * needs an endpoint that doesn't exist yet. See the TODO at the `period`
  * control in JournalForm.tsx; its answer goes into PeriodMeterTile's
  * `typicalCycleLength` prop UNRESOLVED (cycleState owns the precedence).
+ *
+ * ── PRESENTATION, reworked 2026-08-01 ───────────────────────────────────────
+ * The tile no longer renders the form inline. It has TWO states:
+ *
+ *   not logged today → a "New entry" button. Pressing it opens a Tearsheet
+ *                      that slides up from the bottom holding the SAME
+ *                      `JournalForm`; "Save journal" writes through the same
+ *                      handleSave below and closes, "Cancel" closes and throws
+ *                      the in-progress input away.
+ *   logged today     → `JournalSummary`, a READ-ONLY list of what was saved.
+ *                      No editable controls.
+ *
+ * The tile keeps its `bento-journal` grid area in both states — nothing about
+ * the layout moved. This is presentation only: `/api/journal`,
+ * `journal-types.ts` and the 5.4 reminder layer are untouched, and the form is
+ * still handed the same `day` / `initialAnswers` / `onSubmit` contract 5.2
+ * defined.
+ *
+ * NO EDIT PATH FROM THE FILLED STATE — flagged. The brief specifies the logged
+ * state as read-only "with no editable form controls" and puts "New entry"
+ * only in the empty state, so that is what ships. It IS a change in
+ * capability: `/api/journal` upserts on `(user_id, day)` and JournalForm
+ * re-seeds from `initialAnswers`, so editing today still works end to end —
+ * there is simply no longer a button that reaches it. Adding an "Edit entry"
+ * action to the filled state would be a one-line change (open the same
+ * tearsheet) if that turns out to be wanted.
  */
 function JournalTile() {
   const day = localTodayISO();
+  // Tearsheet visibility. `openCount` is the form's remount key: bumping it on
+  // every open re-seeds JournalForm from `initialAnswers`, which is what makes
+  // Cancel actually DISCARD — without it the form would keep whatever was
+  // typed before the last dismissal and silently re-present it as the current
+  // draft.
+  const [open, setOpen] = useState(false);
+  const [openCount, setOpenCount] = useState(0);
   const [answers, setAnswers] = useState<JournalAnswers | undefined>(undefined);
   // Does today's row EXIST? Deliberately not derived from `answers`: a saved
   // entry whose values match what was already on screen leaves `answers`
@@ -1052,6 +1169,22 @@ function JournalTile() {
     };
   }, [day]);
 
+  function openSheet() {
+    setSubmitError(null);
+    setOpenCount((n) => n + 1);
+    setOpen(true);
+  }
+
+  /**
+   * Every dismissal route (Cancel, ✕, Escape, backdrop) lands here. Closing is
+   * all it does — the draft is discarded by the remount `openCount` forces on
+   * the next open, never written anywhere.
+   */
+  function closeSheet() {
+    setOpen(false);
+    setSubmitError(null);
+  }
+
   async function handleSave(next: JournalAnswers) {
     setSubmitting(true);
     setSubmitError(null);
@@ -1069,18 +1202,26 @@ function JournalTile() {
         throw new Error(`Journal save failed with status ${res.status}.`);
       }
       const body = (await res.json()) as { entry?: JournalAnswers | null };
-      // The row as SAVED (falling back to the payload if the body is
-      // unexpected) — but adopt it only when it DIFFERS from what we sent.
-      // Handing JournalForm a new `initialAnswers` reference makes it re-seed,
-      // and re-seeding clears its "Saved." status; browser-verified. When the
-      // server echoes exactly what we submitted — the normal case — the form
-      // already shows what is stored, so touching it would erase the only
-      // confirmation a successful write produces for no gain.
+      // The row as SAVED, falling back to the payload if the body is
+      // unexpected. ALWAYS adopted as of 2026-08-01.
+      //
+      // Through 5.4 this was conditional — `journalAnswersEqual(stored, next)`
+      // kept the previous reference, because handing JournalForm a new
+      // `initialAnswers` made it re-seed and re-seeding cleared its "Saved."
+      // status. That reasoning died with the tearsheet: a successful save
+      // closes the sheet and unmounts the form, and the next open remounts it
+      // fresh regardless. Keeping the old behavior would now be an outright
+      // BUG — on a FIRST entry `prev` is `undefined`, so the tile would flip
+      // `logged` to true while holding no answers to render, and fall back to
+      // the "New entry" empty state immediately after a successful save.
       const stored = body.entry ?? next;
-      setAnswers((prev) => (journalAnswersEqual(stored, next) ? prev : stored));
+      setAnswers(stored);
       // The row now exists whatever it contains — 5.4's reminder must not fire
       // for a day the user just logged in this session.
       setLogged(true);
+      // Only on success: a failed write rethrows below, so the sheet stays
+      // open with the user's input and the error intact.
+      setOpen(false);
     } catch (err) {
       setSubmitError(message);
       // Rethrow: JournalForm catches this and withholds its "Saved." status,
@@ -1107,6 +1248,10 @@ function JournalTile() {
       emptyMessage="Connect your WHOOP account to log your day."
       errorMessage="Couldn’t load today’s journal. Refresh to try again."
     >
+      {/* The reminder stays on the TILE, not in the tearsheet: it is a live
+          region and the focus target a clicked notification lands on, so it
+          has to be present whether or not the sheet is open (5.4 logic
+          untouched). */}
       <JournalReminder
         prompt={reminder.prompt}
         regionRef={reminder.regionRef}
@@ -1114,13 +1259,29 @@ function JournalTile() {
         onDismiss={reminder.dismiss}
         onDisable={reminder.disable}
       />
-      <JournalForm
-        day={day}
-        initialAnswers={answers}
-        onSubmit={handleSave}
-        submitting={submitting}
-        submitError={submitError}
-      />
+
+      {logged && answers ? (
+        <JournalSummary day={day} answers={answers} />
+      ) : (
+        <div className="journal-empty">
+          <p className="journal-hint">Nothing logged for today yet.</p>
+          <Button type="button" size="sm" onClick={openSheet}>
+            New entry
+          </Button>
+        </div>
+      )}
+
+      <Tearsheet open={open} title="Daily journal" onClose={closeSheet}>
+        <JournalForm
+          key={openCount}
+          day={day}
+          initialAnswers={answers}
+          onSubmit={handleSave}
+          submitting={submitting}
+          submitError={submitError}
+          onCancel={closeSheet}
+        />
+      </Tearsheet>
     </ChartContainer>
   );
 }
@@ -1320,7 +1481,19 @@ function App() {
           className="auth-card"
           aria-busy={state === 'loading' || state === 'waking'}
         >
-          <h2>Connection</h2>
+          {/* Head row (2026-08-01): the heading on the left, the Connect
+              action pinned top-right. The action's CONDITION is unchanged —
+              it renders only while disconnected, never when WHOOP is already
+              linked; only its position moved out of the body below. */}
+          <div className="auth-card-head">
+            <h2>Connection</h2>
+            {state === 'disconnected' && (
+              // Top-level redirect (302 flow), not a fetch — a real navigation.
+              <Button variant="primary" size="sm" href="/api/auth">
+                Connect WHOOP
+              </Button>
+            )}
+          </div>
 
           {state === 'loading' && <LoadingState label="Checking your connection…" />}
 
@@ -1333,11 +1506,10 @@ function App() {
               {unreachable && (
                 <ErrorState message="We couldn’t reach your database. Free-tier Supabase projects pause after about a week of inactivity and have to be resumed from the Supabase dashboard — resume it there, then refresh this page." />
               )}
+              {/* The Connect button used to sit HERE, under this line; it is
+                  now in the head row above (2026-08-01). Same condition, same
+                  href, same 302 flow — only the position changed. */}
               <p className="muted">Connect your WHOOP account to pull in your data.</p>
-              {/* Top-level redirect (302 flow), not a fetch — use a real navigation. */}
-              <Button variant="primary" href="/api/auth">
-                Connect WHOOP
-              </Button>
             </>
           )}
 

@@ -33,20 +33,67 @@
 > The LOCKED chart palette is untouched. All deltas are darkenings within the
 > same hue, reversible if a different remedy is preferred.
 
-| Token                   | Value                   | Usage                                                                                |
-| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
-| `--color-bg`            | `#e8f3fb`               | App background (airy sky-tinted)                                                     |
-| `--color-surface`       | `#ffffff`               | Cards / panels (glossy white)                                                        |
-| `--color-surface-glass` | `rgba(255,255,255,0.6)` | Frosted / translucent panels                                                         |
-| `--color-text`          | `#0f2b3d`               | Primary text (deep teal-navy) — 13.0:1 on bg                                         |
-| `--color-muted`         | `#546d80`               | Secondary text (blue-grey) — 4.81:1 on bg, 5.42:1 on surface                         |
-| `--color-border`        | `#cfe3f0`               | Soft blue-tinted hairline / dividers (decorative — 1.32:1, never a control boundary) |
-| `--color-accent`        | `#1173a6`               | Primary accent (Aero azure) — 5.22:1 white label, ≥4.6:1 outline on every shell bg   |
-| `--color-accent-strong` | `#0f6494`               | Accent hover / pressed — 6.42:1 white label & as text on surface                     |
-| `--color-positive`      | `#3aa657`               | Good / above target (nature green) — 3.10:1, fills/large only                        |
-| `--color-negative`      | `#c93848`               | Bad / below target (coral red) — 5.07:1 surface, 4.50:1 bg                           |
-| `--color-warning`       | `#f5a623`               | Caution / attention (warm amber) — **fills/dots only, 2.03:1**                       |
-| `--color-warning-text`  | `#946200`               | Warning-toned text — 5.24:1 surface, 4.65:1 bg (added 3.4)                           |
+> **2026-08-01 — confirmed UI/UX pass. The palette is no longer "LOCKED", and
+> the contrast picture changed with it.** Four chart tokens were repointed and
+> two new token families added at the user's direction; the ratios below were
+> re-computed (WCAG 2.x relative luminance, not eyeballed) against white and
+> against the tile's new translucent backdrop (`rgba(255,255,255,.5)` over the
+> page gradient ≈ `#edf7fc`).
+>
+> | Token                 | New value | vs. white | vs. tile | ≥3:1 non-text?               |
+> | --------------------- | --------- | --------- | -------- | ---------------------------- |
+> | `--color-positive`    | `#6BCB3C` | 2.05:1    | 1.89:1   | **NO** (was 3.10:1 — passed) |
+> | `--color-chart-3`     | `#FFCCE7` | 1.40:1    | 1.28:1   | NO                           |
+> | `--color-chart-4`     | `#D9E3F0` | 1.30:1    | 1.19:1   | NO                           |
+> | `--color-chart-5`     | `#02B3FF` | 2.36:1    | 2.17:1   | NO                           |
+> | `--color-chart-7`     | `#FFA1A0` | 1.93:1    | 1.78:1   | NO                           |
+> | `--color-skin-temp`   | `#F4801B` | 2.64:1    | 2.43:1   | NO                           |
+> | `--color-sleep-deep`  | `#3A4F1A` | 9.08:1    | 8.35:1   | yes                          |
+> | `--color-sleep-rem`   | `#6C8F25` | 3.75:1    | 3.45:1   | yes                          |
+> | `--color-sleep-light` | `#9FE11E` | 1.58:1    | 1.46:1   | NO                           |
+> | `--color-sleep-awake` | `#CCFF7C` | 1.16:1    | 1.06:1   | NO                           |
+>
+> **FLAGGED, three consequences the user should know about.**
+>
+> 1. **`--color-positive` lost its 3:1 pass.** It fills the recovery donut's
+>    green zone (`RECOVERY_ZONES`), the "Connected" status dot, the `.dot`
+>    indicator, and now the recovery line in chart 4.2. None of those is text,
+>    and none is the ONLY carrier of its meaning — the donut prints its percent
+>    as real text and names the zone in its `<desc>`, the status dot sits beside
+>    the word "Connected" — so §5.2 rule 4 still holds by redundancy. But the
+>    mark itself is now below the 3:1 a non-text indicator wants.
+> 2. **The removed hairlines were the 3:1 remedy.** §5.2 rule 4's stated fix for
+>    a sub-3:1 hue was "a ≥3:1 outline or a direct text label". The
+>    2026-08-01 pass removed those outlines from the HRV/RHR lines and points,
+>    the sleep-stage bars and most legend swatches, so those marks now lean
+>    entirely on the OTHER half of the rule: every series is named in real text
+>    in its legend, every focusable point carries an `aria-label`, every value
+>    is in the tooltip and in the sr-only data table. A deliberate trade of
+>    mark contrast for the requested cleaner look, not an oversight.
+> 3. **`--color-border` is now a control boundary** on `.ui-input`/`.ui-textarea`
+>    and the unselected journal chips, at 1.21:1 against the tile — the rule in
+>    §5.1 that forbade exactly this was overridden by explicit confirmation. The
+>    selected chip's label is `--color-text` on `#cfe3f0` at **11.09:1**, so the
+>    text itself got better; it is the field/chip EDGE that got fainter.
+>
+> Fixing 1-3 (a darker green, restoring selected outlines, or a `--color-muted`
+> field border) is a one-token change in each case if the trade turns out wrong.
+
+| Token                         | Value                   | Usage                                                                                |
+| ----------------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
+| `--color-bg`                  | `#e8f3fb`               | App background (airy sky-tinted)                                                     |
+| `--color-surface`             | `#ffffff`               | Cards / panels (glossy white)                                                        |
+| `--color-surface-glass`       | `rgba(255,255,255,0.6)` | Frosted / translucent panels (the sticky header bar)                                 |
+| `--color-surface-translucent` | `rgba(255,255,255,0.5)` | Bento tile surface (added 2026-08-01 — Figma node `125:68`)                          |
+| `--color-text`                | `#0f2b3d`               | Primary text (deep teal-navy) — 13.0:1 on bg                                         |
+| `--color-muted`               | `#546d80`               | Secondary text (blue-grey) — 4.81:1 on bg, 5.42:1 on surface                         |
+| `--color-border`              | `#cfe3f0`               | Soft blue-tinted hairline / dividers (decorative — 1.32:1, never a control boundary) |
+| `--color-accent`              | `#1173a6`               | Primary accent (Aero azure) — 5.22:1 white label, ≥4.6:1 outline on every shell bg   |
+| `--color-accent-strong`       | `#0f6494`               | Accent hover / pressed — 6.42:1 white label & as text on surface                     |
+| `--color-positive`            | `#6bcb3c`               | Good / above target (green) — **2.05:1, fills only** (2026-08-01: was `#3aa657`)     |
+| `--color-negative`            | `#c93848`               | Bad / below target (coral red) — 5.07:1 surface, 4.50:1 bg                           |
+| `--color-warning`             | `#f5a623`               | Caution / attention (warm amber) — **fills/dots only, 2.03:1**                       |
+| `--color-warning-text`        | `#946200`               | Warning-toned text — 5.24:1 surface, 4.65:1 bg (added 3.4)                           |
 
 ### Colors — glossy / glass treatment
 
@@ -67,47 +114,74 @@ ever dropped. _(Flagged for confirmation — gradient vs. flat.)_
 | `--shadow-card`        | `0 8px 24px -8px rgba(9,102,148,.28), 0 2px 6px -2px rgba(9,102,148,.16)`                                  | Soft blue-tinted card drop shadow     |
 | `--shadow-inset-gloss` | `inset 0 1px 0 rgba(255,255,255,0.85)`                                                                     | Top inner gloss line on surfaces      |
 
-### Colors — chart / data-series palette (LOCKED)
+### Colors — chart / data-series palette (REPOINTED 2026-08-01)
 
-These seven hexes come from a confirmed palette and are used **verbatim**
-— not approximated, tinted, or substituted.
+Used **verbatim** — not approximated, tinted, or substituted. The token NAMES
+are stable, so every consumer still reads `var(--color-chart-N)`; four of the
+seven VALUES were replaced in the 2026-08-01 pass (previous values in the
+right-hand column). This supersedes the earlier "LOCKED" framing of this table.
 
-| Token             | Value     | Hue name       |
-| ----------------- | --------- | -------------- |
-| `--color-chart-1` | `#60E1F0` | Light blue     |
-| `--color-chart-2` | `#875C00` | Dark orange    |
-| `--color-chart-3` | `#FF4978` | Bright magenta |
-| `--color-chart-4` | `#D9D059` | Pale mustard   |
-| `--color-chart-5` | `#096694` | Dark blue      |
-| `--color-chart-6` | `#16D113` | Lime green     |
-| `--color-chart-7` | `#902944` | Dark magenta   |
+| Token             | Value     | Hue name       | Was (pre-2026-08-01)   |
+| ----------------- | --------- | -------------- | ---------------------- |
+| `--color-chart-1` | `#60E1F0` | Light blue     | unchanged              |
+| `--color-chart-2` | `#875C00` | Dark orange    | unchanged              |
+| `--color-chart-3` | `#FFCCE7` | Pale pink      | `#FF4978`              |
+| `--color-chart-4` | `#D9E3F0` | Pale blue-grey | `#D9D059`              |
+| `--color-chart-5` | `#02B3FF` | Bright azure   | `#096694`              |
+| `--color-chart-6` | `#16D113` | Lime green     | unchanged — **unused** |
+| `--color-chart-7` | `#FFA1A0` | Warm coral     | `#902944`              |
 
-#### Chart color mapping — **PROPOSAL, pending confirmation**
+**`--color-chart-6` has no consumers and is deliberately KEPT as a reserved
+slot** (decision flagged 2026-08-01, not silently made). It was Recovery's hue;
+the recovery line in chart 4.2 now reads `--color-positive` — the same `#6BCB3C`
+the recovery donut's green zone fills with, so the line and the ring finally
+agree — which left chart-6 unreferenced. It stays defined because it is a
+documented palette slot and removing one is a design call rather than a
+cleanup; say the word and it goes.
 
-The palette is locked; the semantic mapping is **not**. Proposed
-assignment of the seven hues to the metric surface in §4 (Recovery,
-Strain, Sleep, Calories, Skin temp, HRV actual+ideal, RHR actual+ideal,
-cycle/period meter, journal accents). There are more roles than hues, so
-some hues do deliberate double-duty (per the brief's suggestion that
-"actual" lines can share, and "ideal" bands can share a muted token):
+#### Chart hues OUTSIDE the shared palette (added 2026-08-01)
 
-| Token             | Hue            | Proposed metric / role                                                                 |
-| ----------------- | -------------- | -------------------------------------------------------------------------------------- |
-| `--color-chart-6` | Lime green     | **Recovery** (green = high recovery, WHOOP convention)                                 |
-| `--color-chart-5` | Dark blue      | **Strain** (blue = strain, WHOOP convention)                                           |
-| `--color-chart-1` | Light blue     | **Sleep** (calm cyan)                                                                  |
-| `--color-chart-2` | Dark orange    | **Calories** (warm energy/burn)                                                        |
-| `--color-chart-3` | Bright magenta | **Skin temp** (warm) — _also_ the **cycle/period meter** (never co-occur in one chart) |
-| `--color-chart-7` | Dark magenta   | **HRV actual + RHR actual** (shared cardio "actual" line)                              |
-| `--color-chart-4` | Pale mustard   | **HRV ideal + RHR ideal** (shared muted baseline band)                                 |
+Each of these belongs to exactly ONE chart, so a `--color-chart-N` slot would
+imply a cross-chart semantic they don't have.
 
-Notes on the soft spots (please confirm/redirect):
+| Token                 | Value     | Owner                                                                           |
+| --------------------- | --------- | ------------------------------------------------------------------------------- |
+| `--color-skin-temp`   | `#F4801B` | Skin-temp sparkline — line, endpoint dot, and the top stop of its area gradient |
+| `--color-sleep-deep`  | `#3A4F1A` | Sleep stages, Deep (bottom of the stack)                                        |
+| `--color-sleep-rem`   | `#6C8F25` | Sleep stages, REM                                                               |
+| `--color-sleep-light` | `#9FE11E` | Sleep stages, Light                                                             |
+| `--color-sleep-awake` | `#CCFF7C` | Sleep stages, Awake (top)                                                       |
 
-- **HRV/RHR sharing.** Actual lines share `--color-chart-7`; ideal/baseline
-  bands share the muted `--color-chart-4`. If HRV and RHR ever appear in
-  the **same** chart, their actual lines would collide — split them then.
-- **Skin temp vs. cycle/period meter** both use `--color-chart-3`; fine only
-  while they never share a chart.
+#### Chart hue → metric mapping (revised 2026-08-01)
+
+| Token               | Hue             | Metric / role                                                       |
+| ------------------- | --------------- | ------------------------------------------------------------------- |
+| `--color-positive`  | Green `#6BCB3C` | **Recovery** — the donut's green zone AND chart 4.2's recovery line |
+| `--color-chart-5`   | Bright azure    | **Strain** — the donut/ring AND chart 4.2's strain line             |
+| `--color-chart-1`   | Light blue      | **Sleep** (generic) / hydrated in the 5.5 matrix                    |
+| `--color-chart-2`   | Dark orange     | **Calories** (text-only tile) / dehydrated in the 5.5 matrix        |
+| `--color-chart-3`   | Pale pink       | **Cycle/period meter** only — no longer shared with skin temp       |
+| `--color-chart-7`   | Warm coral      | **HRV actual + RHR actual** (shared cardio "actual" line)           |
+| `--color-chart-4`   | Pale blue-grey  | **HRV + RHR recent baseline** (shared muted band, 50% fill opacity) |
+| `--color-chart-6`   | Lime green      | _unused / reserved_ — see the note above                            |
+| `--color-skin-temp` | `#F4801B`       | **Skin temp** — its own token now                                   |
+| `--color-sleep-*`   | green ramp      | **Sleep stages** — its own four tokens now                          |
+
+Notes:
+
+- **HRV/RHR sharing** is unchanged and still fine: actual lines share
+  `--color-chart-7`, baseline bands share `--color-chart-4`, and the two
+  metrics never appear in the same chart. If they ever do, split them then.
+- **Skin temp vs. cycle/period meter no longer share `--color-chart-3`**
+  (changed 2026-08-01). The old note below said the sharing was "fine only
+  while they never share a chart" — which was always uncomfortable, since both
+  tiles ARE on this one dashboard view. chart-3 was repointed to the period
+  meter's pale pink and skin temp took `--color-skin-temp`, so the ambiguity
+  is gone rather than merely tolerated.
+- **Sleep stages no longer borrow chart tokens** (changed 2026-08-01). The
+  four-way mapping below reused chart-5/-2/-1/-4; chart-5 and chart-4 have
+  since been repointed to Strain and the HRV/RHR baseline, so the borrow had
+  to end. See the `--color-sleep-*` family above.
 - **Hydration states (Phase 5.5)** reuse `--color-chart-1` (hydrated) and
   `--color-chart-2` (dehydrated) in `HydrationRecoveryDotMatrix`, with
   `--color-border` for "undetermined" — the same never-in-the-same-chart
@@ -124,24 +198,30 @@ Notes on the soft spots (please confirm/redirect):
 
 Direction: rounded, humanist sans (friendly, optimistic — the Aero
 register). The historically "correct" face is Frutiger itself, which is
-**proprietary (Linotype)** and not bundled.
+**proprietary (Linotype)**, has no web-font licence, and was never an option.
 
-**Font candidates — PROPOSAL, licensing/availability to be confirmed
-before importing any:**
+**HEADINGS = Roboto — CONFIRMED and shipped 2026-08-01.** Loaded in
+`index.html` from Google Fonts (weights 400/500/700, `display=swap`) with
+`preconnect` hints. The earlier Nunito Sans / Mulish candidates were never
+imported and are dropped.
 
-- **Nunito Sans** (primary candidate) — rounded, humanist, **SIL OFL**,
-  self-hostable; closest free match to the Aero feel.
-- **Mulish** (alternative) — a more neutral humanist sans, also OFL, if
-  Nunito reads too soft.
-
-Until a face is licensed/imported, the stack falls back to system
-humanist faces — `'Segoe UI'` first gives Windows users the authentic
-Vista-era Aero look for free, `system-ui` elsewhere.
+- **Scope:** `--font-display` (and the legacy `--heading` token that drives
+  `h1, h2`) only. **Body text is unchanged** — `--font-sans` still resolves to
+  the system humanist stack. Note that `--font-display` already dressed more
+  than headings: the card titles, the ring/sparkline values and the stat-card
+  numerals read it too (charts.css), so Roboto lands on those numerals as
+  well. That is the token's pre-existing scope, not a widening.
+- **Flagged — loading strategy is a judgment call.** The repo had no
+  font-loading convention to follow (nothing was loaded before). Google Fonts
+  is the smallest change that works, but it means a third-party request that
+  exposes the visitor's IP to `fonts.googleapis.com`/`fonts.gstatic.com`. For
+  a health dashboard that may not be acceptable; self-hosting the two woff2
+  files under `/public` with a local `@font-face` is a drop-in swap.
 
 | Token            | Value                                                                                      |
 | ---------------- | ------------------------------------------------------------------------------------------ |
 | `--font-sans`    | `'Nunito Sans', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif` |
-| `--font-display` | `'Nunito', 'Nunito Sans', 'Segoe UI', system-ui, sans-serif` (headings)                    |
+| `--font-display` | `Roboto, 'Segoe UI', system-ui, -apple-system, sans-serif` (headings — 2026-08-01)         |
 | `--font-mono`    | `ui-monospace, 'SFMono-Regular', 'Cascadia Code', Consolas, monospace`                     |
 
 | Scale token   | Size | Typical use                  |
@@ -329,8 +409,20 @@ for the control to change. Verified byte-identical across a toggle.
   Connect/Disconnect pill, driven by the same connection state as the auth
   card. **No sidebar/nav** — deferred until Phase 5 adds a second page (§2).
 - **Card** — **✅ built (3.3)**: `src/components/Card.tsx`, the base
-  glossy/glass surface (`--color-surface` + `--surface-gloss`,
-  `--shadow-card` + inset gloss, `--radius-lg`/`--radius-xl`). Props:
+  glossy/glass surface (`--color-surface-translucent` + `--surface-gloss`,
+  `--shadow-card` + inset gloss, `--radius-lg`/`--radius-xl`).
+  **2026-08-01, two separate changes (confirmed):** (a) the base layer dropped
+  to **50% white** (`--color-surface-translucent`, from Figma node `125:68`)
+  — applied to the background COLOR, never to the element's `opacity`, which
+  would fade the content too; (b) a **corner shine** was added as a
+  non-interactive `::after` radial highlight in the top-right, `pointer-events:
+none`, kept below the content with `z-index`. (b) is a **first-pass
+  interpretation, not a spec** — the reference node carries the opacity value
+  but no gloss of its own, so there is nothing to match pixel-for-pixel; expect
+  to tune intensity/size/falloff. The pseudo-element uses `inset: 0` +
+  `border-radius: inherit` rather than `overflow: hidden` on the card, because
+  hiding overflow would clip the chart tooltips that deliberately escape a
+  tile. Props:
   `as` (`div`/`section`/`article`), `padding` (`md` = `--space-3` tile
   density, `lg` = `--space-6` hero), `radius` (`lg` default / `xl`), plus
   passthrough HTML attrs. Every bento tile and the auth card render on it.
@@ -362,6 +454,12 @@ for the control to change. Verified byte-identical across a toggle.
   `.ui-btn` pills would read as several independent actions rather than a
   single either/or choice. Selected segment takes the accent FILL, matching
   `.ui-btn-primary`.
+  **2026-08-01:** the selected segment no longer paints its own background —
+  a single `.range-toggle-thumb` element slides between positions with an
+  `ease-in-out` transition (260ms), so selection reads as one pill travelling
+  rather than two backgrounds swapping. The track became an equal-column
+  `inline-grid` to make that possible (the two labels are different widths).
+  Reduced motion snaps it into place instead.
   **Accessibility:** `role="radiogroup"` over native `<button role="radio">`
   with `aria-checked`; roving tabindex (one Tab stop for the group);
   arrow keys on both axes plus Home/End, with selection following focus per
@@ -374,12 +472,48 @@ var(--color-accent)` focus ring, 44px tap target via the `::after`
   component to use a custom `tabIndex`, which §5.1's "no custom tabIndex
   anywhere" audit line no longer covers verbatim — it is required by the
   radiogroup pattern, not decoration.
+- **Tearsheet** — **✅ built (2026-08-01)**: `src/components/Tearsheet.tsx` —
+  a bottom-anchored modal panel that slides up over the dashboard. Props:
+  `open`, `title`, `onClose`, `children`, `className`. Built on a native
+  `<dialog>` + `showModal()`, so the focus trap, inert background, top-layer
+  stacking and Escape-to-close come from the platform rather than being
+  reimplemented. Slide in AND out via `transition-behavior: allow-discrete` +
+  `@starting-style` (without those, `display` being a discrete property means
+  only the exit would animate); degrades to an instant show/hide where
+  unsupported, and is gated on `prefers-reduced-motion`. `onClose` fires for
+  every dismissal route — ✕, Escape, backdrop click — so callers cannot treat
+  them differently. **The interaction pattern is borrowed from the referenced
+  design-system tearsheet; none of its visuals are** — the surface is this
+  app's own §1 tokens. Its only consumer is the daily-journal tile.
+- **JournalSummary** — **✅ built (2026-08-01)**:
+  `src/components/JournalSummary.tsx` — READ-ONLY `<dl>` of a saved day's
+  answers, in `JOURNAL_QUESTIONS` order, with no editable controls. Unanswered
+  fields are RENDERED (muted "Not answered"), never dropped: hiding them would
+  erase the `null` vs. `false`/`0` distinction the whole schema exists to keep.
+- **TrendIndicator / TrendArrow** — **✅ built (2026-08-01)**:
+  `src/components/charts/TrendIndicator.tsx` — one trailing-average comparison
+  as "▲ 12% above your 1-month average". `TrendArrow` is now the single
+  definition of the ▲/▼ glyph; `StatDelta` was refactored to import it rather
+  than keep its own copy. _(Correction to the 2026-08-01 brief: there is no
+  `Polygon`/triangle SVG component in this codebase to reuse — the pre-existing
+  pattern was a literal text glyph inside `StatDelta`, and that is what is now
+  shared.)_ Compares by PERCENT, since recovery is already a percentage and
+  strain is a unitless 0-21 score.
 - **Form primitives** — **✅ built (3.3, unconsumed)**:
   `src/components/form.tsx` — `Label`, `Input`, `Select` on the §1 tokens.
   Deliberately minimal; the Phase 5 questionnaire is their first consumer.
-- Auth: "Connect WHOOP" button, connected state — **✅ restyled (3.3)**: now
-  a `Card` (`padding="lg"`, `radius="xl"`) + `Button` on the §1 tokens;
-  legacy purple-accent styling gone. Auth logic byte-for-byte unchanged.
+- Auth: "Connect WHOOP" button, connected state — **✅ restyled (3.3),
+  re-restyled (2026-08-01)**: a `Card` + `Button` on the §1 tokens; legacy
+  purple-accent styling gone. Auth logic byte-for-byte unchanged.
+  2026-08-01 (confirmed): the tile's own surface is switched off — no
+  background, border, shadow or corner gloss — so it reads as content directly
+  on the page gradient; it widened from 420px to **640px, matching
+  `.bento-grid`'s cap and centering**; text stepped down (`--text-lg` heading,
+  `--text-sm` body); padding dropped from `--space-6` to `--space-3` so its
+  headings line up with the bento tiles below and the head row fits on one
+  line at 375px; and the "Connect WHOOP" action moved to the **top-right** of
+  the tile. Its CONDITION is unchanged — still rendered only while
+  disconnected, never when WHOOP is linked.
   _Still legacy:_ the OAuth error **banner** keeps its pre-§1 tokens — it
   wasn't in the 3.3 component list; migrate when it next changes.
 - Dashboard grid container — **✅ revised (3.2 follow-up)**: `.bento-grid`,
@@ -488,7 +622,7 @@ questionnaire self-reports. Confirm exact mapping (and time window) per chart.
 | Recovery donut      | Circular progress ring                  | `recovery_score` (0–100%) from the latest `whoop_recovery` row, red/yellow/green zone coloring. **Cutoffs verified 2026-07-14 against https://developer.whoop.com/docs/whoop-101/: green 67–100%, yellow 34–66%, red 0–33%** (constants: `RECOVERY_ZONES` in `src/lib/recovery.ts` — moved there from `src/App.tsx` in Phase 5.5, values unchanged, when the alcohol/recovery dot matrix became a second consumer of the same cutoffs). Zone hues are the fill-safe §1 UI tokens `--color-positive`/`--color-warning`/`--color-negative` — arc fill only, never text (§5.1).                                                                                                                                                                                                                |
 | Strain donut        | Circular progress ring                  | `strain` (WHOOP 0–21 scale) from the latest `whoop_cycles` row, ring fraction = `strain / 21`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Period meter        | Dot-matrix cycle-day progress bar       | **Confirmed 2026-07-14: self-reported, not WHOOP API.** Verified against the live WHOOP v2 OpenAPI spec — no menstrual-cycle resource exists (full resource list: Activity ID Mapping, Partner, User, Cycle, Recovery, Sleep, Workout). **Entry point (revised 2026-07-14): the Phase 5 daily journal's existing "Period" field** (`journal-stub-list` in `src/App.tsx`), not a standalone input — so this tile depends on Phase 5 shipping before it can show real data. Cycle start is inferred from that daily field via an episode-detection algorithm — see the cycle-start-detection rule below — not from an explicit "day 1" action. The tile stays in its empty state until Phase 5's journal exists and the user has logged at least one period day. See ROADMAP.md 4.10 and 5.1. |
-| Skin-temp sparkline | Minimal line chart (no axes)            | `skin_temp_celsius` from `whoop_recovery`, trailing window (14 or 30 days — TBD).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Skin-temp sparkline | Minimal line chart (no axes)            | `skin_temp_celsius` from `whoop_recovery`, trailing window (14 or 30 days — TBD). **2026-08-01:** the numeric reading renders ABOVE the plot; the line is `--color-skin-temp` `#F4801B` (its own token — no longer sharing `--color-chart-3` with the period meter) over a vertical gradient area fading from that hue to transparent, with no stroke on the area and no casing on the line.                                                                                                                                                                                                                                                                                                                                                                                                |
 | Calories stat card  | Stat + trailing-average delta indicator | `kilojoule` from the day's `whoop_cycles` row → kcal via `KJ_PER_KCAL = 4.184` (**CONFIRMED 2026-07-19**: the thermochemical calorie, NIST cal_th = 4.184 J exactly; WHOOP does NOT publish which calorie their displayed figure means, so 4.184 = the nutritional convention — revisit only if WHOOP states otherwise). Compared vs. the trailing baseline (App shares the 30-day fetch; today is EXCLUDED → ≤29 prior days, so the caption says "your recent average", not "exactly 30"), min-sample floor **10** (`baselineDelta` in `src/lib/stats.ts`; below 10 → value + "not enough history yet", no delta). Shipped 4.12.                                                                                                                                                           |
 | Sleep stat card     | Stat + trailing-average delta indicator | Total sleep = the **STAGE SUM** (light + deep + REM) = `DailyMetricPoint.totalSleepMilli` (**CONFIRMED 2026-07-19**, decision 1 — NOT `total_in_bed − total_awake`: already shipped, naps already excluded, matches chart 4.1's stacked bar; a second competing "sleep" definition on one dashboard is worse than a slightly conservative number). Formatted `h:mm`; delta in minutes vs. the same trailing baseline (today excluded, min-sample floor 10). Shipped 4.12.                                                                                                                                                                                                                                                                                                                   |
 
@@ -538,37 +672,37 @@ computation has to infer the boundary:
    to ship 4.10/5.x. A TODO at `PeriodMeterTile`'s render site requires
    surfacing this in the UI once real data flows.
 
-### Sleep-stage color mapping (chart 4.1) — **PROPOSAL (2026-07-09), pending confirmation**
+### Sleep-stage color mapping (chart 4.1) — **CONFIRMED 2026-08-01**
 
-§1 locks the seven chart hexes and pre-assigns `--color-chart-1` to "Sleep"
-generically; it does NOT lock a 4-way mapping for individual sleep stages.
-This subsection locks one in (pending your confirmation). **Arithmetic
-correction to the task brief:** with six of the seven hues already
-load-bearing on the same dashboard view (chart-2 calories, chart-3 skin
-temp/period, chart-4 HRV/RHR ideal band, chart-5 strain, chart-6 recovery,
-chart-7 HRV/RHR actual), four distinct stage hues require reusing **three**
-reserved tokens, not one — only chart-1 is free.
+The stages have their OWN four tokens; nothing is borrowed from the shared
+chart palette any more. (The 2026-07-09 proposal this replaces reused
+chart-5 / chart-2 / chart-1 / chart-4 because only chart-1 was free — an
+arrangement that ended when chart-5 and chart-4 were repointed to Strain and
+the HRV/RHR baseline. The full reasoning for those reuses, and the reuses
+rejected at the time, is in git history for this file.)
 
-| Stage (stack, bottom→top) | Token             | Hue          | Reuse conflict & why it's the least bad                                                                                      |
-| ------------------------- | ----------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| Deep (bottom)             | `--color-chart-5` | Dark blue    | Strain donut/matrix. Deepest sleep = darkest blue is the natural read; strain never co-occurs in a sleep chart.              |
-| REM                       | `--color-chart-2` | Dark orange  | Calories — currently a **text-only stat tile** with no colored mark at all, so this is the quietest reuse on the whole view. |
-| Light                     | `--color-chart-1` | Light blue   | None — the one free token, and already the designated "Sleep" hue. Lightest blue = lightest sleep.                           |
-| Awake (top)               | `--color-chart-4` | Pale mustard | HRV/RHR ideal band — a muted low-salience background area, geometrically distant from this chart's rows.                     |
+| Stage (stack, bottom→top) | Token                 | Value     |
+| ------------------------- | --------------------- | --------- |
+| Deep (bottom)             | `--color-sleep-deep`  | `#3A4F1A` |
+| REM                       | `--color-sleep-rem`   | `#6C8F25` |
+| Light                     | `--color-sleep-light` | `#9FE11E` |
+| Awake (top)               | `--color-sleep-awake` | `#CCFF7C` |
 
-Rejected reuses: `--color-chart-6` (lime = Recovery's signature semantic
-color, and the recovery-calendar dot matrix 4.4 will sit directly below this
-chart — worst possible confusion); `--color-chart-3` (bright magenta draws
-both the skin-temp sparkline and the period meter on the same view, high
-salience); `--color-chart-7` (drawn as the actual line in TWO charts, HRV and
-RHR).
+A single dark→light green ramp, so bar depth reads as sleep depth — the ramp
+itself carries the ordering, which four unrelated hues never did.
 
-Contrast consequence (§5.2 rule 4): chart-1 and chart-4 fail the 3:1
-non-text threshold on the white card, so **every bar segment wears a 1px
-`--color-muted` outline** (`.chart-bar-segment` in charts.css) regardless of
-fill — same precedent as the legend swatches. Stage hues are never used as
-text (standing §5 rule); values are labeled in the tooltip/data table in
-`--color-text`.
+Contrast consequence (§5.2 rule 4): the 1px `--color-muted` outline every bar
+segment used to wear is **removed** (`.chart-bar-segment` in charts.css now
+sets `stroke: none`). Deep (8.35:1) and REM (3.45:1) clear 3:1 against the
+tile on their own; Light (1.46:1) and Awake (1.06:1) do not, and lean on the
+other half of rule 4 — the legend names every stage in real text, each segment
+carries an `aria-label`, and the tooltip and sr-only data table both print the
+minutes. Adjacent segments are also separated by the ramp's own steps. Stage
+hues are never used as text (standing §5 rule).
+
+**Out of scope, tracked as ROADMAP 6.2:** the 3-month view's "bars narrow into
+a line-like treatment" is NOT implemented — it needs a visual reference to
+disambiguate from a plain line-chart conversion.
 
 Stack order is deep → REM → light → awake (bottom→top), so bar depth reads
 as sleep depth with wake time on top.

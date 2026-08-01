@@ -7,7 +7,17 @@
  * ============================================================== */
 
 /* --- Card: the base glossy/glass surface --- */
+/* TRANSLUCENCY (2026-08-01, confirmed against Figma node 125:68 "Sleep stat",
+ * file BWF8m6iu8eQJqJghVUbsOQ): the base layer is 50% white, so the page
+ * gradient shows through the tile.
+ *
+ * Applied to the BACKGROUND COLOR, never to the element's `opacity` — an
+ * `opacity: 0.5` on the card would fade the chart, the numerals and the label
+ * text along with the surface, which is a legibility regression, not a glass
+ * effect. The --surface-gloss sheen still sits on top; it is itself
+ * semi-transparent white, so the stack reads as glass rather than as flat 50%. */
 .ui-card {
+  position: relative; /* containing block for the ::after gloss below */
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -15,9 +25,46 @@
   padding: var(--space-3);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
-  background: var(--surface-gloss), var(--color-surface);
+  background: var(--surface-gloss), var(--color-surface-translucent);
   box-shadow: var(--shadow-card), var(--shadow-inset-gloss);
   text-align: left;
+}
+
+/* CORNER SHINE (2026-08-01) — a SEPARATE effect from the 50% translucency
+ * above, and a FIRST-PASS INTERPRETATION rather than a spec: the confirmed
+ * Figma reference node carries the opacity value but no gloss of its own, so
+ * there is nothing to match pixel-for-pixel. Shipped as an off-centre radial
+ * highlight in the top-right corner — the direction the Aero register already
+ * implies, since --surface-gloss lights the card from the top.
+ *
+ * Expect to tune this: intensity, size and falloff are all judgment calls.
+ *
+ * `inset: 0` + `border-radius: inherit` keeps it inside the rounded box
+ * WITHOUT `overflow: hidden` on the card — that would clip chart tooltips,
+ * which are absolutely positioned inside the tile and deliberately overflow
+ * it. `pointer-events: none` so it never eats a click, and it is invisible to
+ * assistive tech (no content, no role). */
+.ui-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  /* Decoration UNDER the content: a positioned ::after would otherwise paint
+   * over the card's in-flow children and veil the text. */
+  z-index: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    120% 90% at 92% 4%,
+    rgba(255, 255, 255, 0.85) 0%,
+    rgba(255, 255, 255, 0.35) 26%,
+    rgba(255, 255, 255, 0) 58%
+  );
+  pointer-events: none;
+}
+
+/* …and the other half of that: lift the real content above the gloss. */
+.ui-card > * {
+  position: relative;
+  z-index: 1;
 }
 
 .ui-card-pad-lg {
@@ -193,14 +240,20 @@
 .ui-textarea {
   box-sizing: border-box;
   width: 100%;
-  /* Task 3.4: 44px min tap target for the Phase 5 form controls, and a
-   * border that meets the 3:1 UI-component boundary (--color-border is
-   * 1.32:1 on white — fine as a decorative card hairline, too faint to
-   * delineate a control). */
+  /* Task 3.4: 44px min tap target for the Phase 5 form controls.
+   *
+   * BORDER CHANGED 2026-08-01 (confirmed): --color-border, not --color-muted.
+   * This is a deliberate departure from design.md §5.1's "--color-border is
+   * decorative and must never be the only boundary of a control" — #cfe3f0 is
+   * 1.32:1 on white, below WCAG's 3:1 for a UI-component boundary, so the
+   * field edge is now softer than AA wants. Flagged rather than silently
+   * applied; the label, the 44px target and the focus ring are unchanged, so
+   * the control is still findable and operable, and the focus state still
+   * draws the AA-compliant 2px accent outline. */
   min-height: 44px;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--color-muted);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
   box-shadow: var(--shadow-inset-gloss);
   color: var(--color-text);
@@ -234,7 +287,14 @@
  * a row of separate .ui-btn pills would read as several independent actions
  * rather than a single either/or choice. */
 .range-toggle {
-  display: inline-flex;
+  /* EQUAL-WIDTH columns (2026-08-01), previously an inline-flex row sized to
+   * each label. The sliding pill translates by whole multiples of its own
+   * width, which only lands on a segment if every segment is the same width —
+   * "1 month" and "3 months" are not. */
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   align-items: center;
   gap: var(--space-1);
   padding: var(--space-1);
@@ -242,6 +302,35 @@
   border-radius: var(--radius-pill);
   background: var(--color-surface);
   box-shadow: var(--shadow-inset-gloss);
+}
+
+/* The travelling fill. Sized to exactly one segment and translated by whole
+ * segment strides, so the ease-in-out is a genuine slide rather than a
+ * cross-fade between two backgrounds.
+ *
+ * Geometry, matching the grid above exactly rather than approximately:
+ *   width  = (track − 2 × padding − (n − 1) × gap) / n     [one column]
+ *   stride = own width + gap                                [one column + gap]
+ * The `100%` inside translateX resolves against the THUMB's own width, which
+ * is what makes the stride expression work without knowing the pixel width. */
+.range-toggle-thumb {
+  position: absolute;
+  /* Without this the 1px border is added OUTSIDE the computed width and the
+   * pill sits 2px wider than the segment it is meant to cover. */
+  box-sizing: border-box;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  left: var(--space-1);
+  width: calc(
+    (100% - 2 * var(--space-1) - (var(--thumb-count) - 1) * var(--space-1)) / var(--thumb-count)
+  );
+  transform: translateX(calc(var(--thumb-index) * (100% + var(--space-1))));
+  border: 1px solid var(--color-accent-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  box-shadow: var(--shadow-inset-gloss);
+  pointer-events: none;
+  transition: transform 260ms ease-in-out;
 }
 
 .range-toggle-option {
@@ -287,22 +376,26 @@
   }
 }
 
-/* The selected segment carries the accent fill — NOT --color-border alone,
- * which §5.1 forbids as a control's only boundary. Selection is additionally
+/* The selected segment no longer paints its own fill — .range-toggle-thumb
+ * does, sliding in from the previously selected segment. All that remains here
+ * is the label color that sits ON that fill. Selection is still additionally
  * conveyed by aria-checked, so this is not a color-only signal. */
 .range-toggle-option-selected {
-  border-color: var(--color-accent-strong);
-  background: var(--color-accent);
   color: var(--color-surface);
 
   &:hover {
-    background: var(--color-accent-strong);
     color: var(--color-surface);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .range-toggle-option {
+    transition: none;
+  }
+
+  /* The pill still MOVES — it just arrives instantly, so the selected segment
+   * is never ambiguous (design.md §5's reduced-motion rule). */
+  .range-toggle-thumb {
     transition: none;
   }
 }
@@ -356,13 +449,17 @@
 
 /* Aero pill in .range-toggle-option's register, but sized as a standalone
  * chip: 44×44px is met by the control itself, so no ::after hit extension.
- * Border is --color-muted (5.42:1) — §5.1 forbids --color-border as a
- * control's only boundary. */
+ *
+ * BORDER CHANGED 2026-08-01 (confirmed): unselected chips are outlined in
+ * --color-border. Same flagged §5.1 departure as .ui-input above — #cfe3f0 is
+ * 1.32:1 on white, under the 3:1 a control boundary wants. The chips remain
+ * 44px targets with the AA focus ring, and `aria-checked` (not the outline)
+ * is what conveys state to assistive tech. */
 .journal-choice {
   min-height: 44px;
   min-width: 44px;
   padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--color-muted);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
   background: var(--color-surface);
   box-shadow: var(--shadow-inset-gloss);
@@ -388,16 +485,26 @@
   }
 }
 
-/* Selection is additionally conveyed by aria-checked, so the accent fill is
- * never the only signal (the .range-toggle-option-selected precedent). */
+/* Selected chip, CHANGED 2026-08-01 (confirmed): filled with --color-border
+ * (#cfe3f0) and labelled in --color-text (#0f2b3d) — both existing tokens,
+ * reused rather than duplicated into near-identical new ones. Replaces the
+ * accent fill + white label.
+ *
+ * FLAGGED: selected and unselected chips now differ only by fill, and that
+ * fill is the same pale blue as the unselected chip's OUTLINE — a much
+ * quieter distinction than the old accent fill. The label stays at
+ * 12.0:1 (--color-text on #cfe3f0), so the text itself is more legible than
+ * before, and `aria-checked` still carries selection independently of color,
+ * so this is not a color-only signal. Purely a visual-salience trade. */
 .journal-choice-selected {
-  border-color: var(--color-accent-strong);
-  background: var(--color-accent);
-  color: var(--color-surface);
+  border-color: var(--color-border);
+  background: var(--color-border);
+  color: var(--color-text);
 
   &:hover {
-    background: var(--color-accent-strong);
-    color: var(--color-surface);
+    border-color: var(--color-accent);
+    background: var(--color-border);
+    color: var(--color-text);
   }
 }
 
@@ -463,8 +570,253 @@
   gap: var(--space-2);
 }
 
+/* --- Journal tile states (2026-08-01) --- */
+/* Empty state: the whole tile body is the "nothing logged yet" prompt plus the
+ * one action that fixes it. */
+.journal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+/* Filled state: the day's saved answers, read-only. Field/value pairs in a
+ * <dl>, each row a label above its answer so long values (Notes) wrap without
+ * a two-column grid collapsing — the journal tile is a NARROW column at
+ * tablet+ (~230px inside the 640px grid). */
+.journal-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.journal-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.journal-summary-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.journal-summary-row dt {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+.journal-summary-row dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+/* An unanswered field is shown, never hidden (see JournalSummary.tsx) — muted
+ * and un-bolded so the eye skips it while the fact stays available.
+ *
+ * Qualified with `dd` deliberately: a bare `.journal-summary-unanswered` is
+ * (0,1,0) and LOSES to `.journal-summary-row dd` at (0,1,1) above, so the
+ * muted treatment silently didn't apply. Browser-verified. */
+.journal-summary-row dd.journal-summary-unanswered {
+  font-weight: var(--weight-regular);
+  color: var(--color-muted);
+}
+
+/* Free text: normal weight, and allowed to wrap mid-word so a long unbroken
+ * string can't widen the tile. Same specificity note as above. */
+.journal-summary-row dd.journal-summary-notes {
+  font-weight: var(--weight-regular);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Tearsheet: bottom-anchored modal panel (2026-08-01) --- */
+/* The <dialog> itself is the full-viewport top-layer box; .tearsheet-panel is
+ * the visible surface, pinned to the bottom edge. Default dialog styling
+ * (centered, auto width, 2px border, padding) is all reset here. */
+.tearsheet {
+  position: fixed;
+  inset: 0;
+  /* Explicit 100% width AND height, not just `inset: 0`: the UA stylesheet
+   * gives <dialog> `width: fit-content; height: fit-content`, which wins over
+   * inset-based auto sizing. With the panel inside it positioned absolutely
+   * (i.e. out of flow) that made the dialog box 0px tall, so the panel's
+   * `bottom: 0` resolved 747px ABOVE the viewport — an open, focus-trapping
+   * dialog with nothing visible on screen. Measured before fixing. */
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.tearsheet::backdrop {
+  background: rgba(15, 43, 61, 0.38); /* --color-text at low alpha */
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.tearsheet-panel {
+  box-sizing: border-box;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  /* Never taller than the viewport; the body scrolls inside instead. svh (not
+   * vh) so a mobile browser's collapsing URL bar doesn't crop the actions row
+   * off the bottom. */
+  max-height: 92svh;
+  width: 100%;
+  /* Lines up with .bento-grid's own cap so the sheet reads as belonging to the
+   * tiles it came from rather than spanning an empty desktop width. */
+  max-width: 640px;
+  margin-inline: auto;
+  /* Rounded at the top only — it slides up from, and returns to, the bottom
+   * edge, so the bottom corners never leave the screen. */
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  background: var(--surface-gloss), var(--color-surface);
+  box-shadow: var(--shadow-card), var(--shadow-inset-gloss);
+}
+
+.tearsheet-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Decorative grab handle — the "this came up from the bottom" affordance.
+ * Full-width flex-basis so it sits on its own line above the title row. */
+.tearsheet-grip {
+  flex: 0 0 100%;
+  width: 36px;
+  height: 4px;
+  margin: 0 auto var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+}
+
+.tearsheet-title {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  letter-spacing: normal;
+  color: var(--color-text);
+}
+
+/* 44×44px in its own right (§5.1), so no ::after hit extension. */
+.tearsheet-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-accent-strong);
+  font-size: var(--text-base);
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--color-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+/* The scrolling region. overscroll-behavior: contain stops a flick past the
+ * end of the form from scrolling the dashboard underneath the sheet. */
+.tearsheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-4);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Slide-up / slide-down. `display` is a discrete property, so the panel would
+ * only ever animate OUT without `allow-discrete` + `@starting-style` — those
+ * two are what give the entry animation something to interpolate from. Where
+ * they aren't supported the sheet just appears and disappears. */
+.tearsheet-panel {
+  transform: translateY(0);
+  opacity: 1;
+  transition:
+    transform 280ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 200ms ease-out;
+}
+
+.tearsheet:not([open]) .tearsheet-panel {
+  transform: translateY(100%);
+  opacity: 0;
+}
+
+@starting-style {
+  .tearsheet[open] .tearsheet-panel {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+.tearsheet {
+  transition:
+    overlay 280ms allow-discrete,
+    display 280ms allow-discrete;
+}
+
+.tearsheet::backdrop {
+  opacity: 1;
+  transition:
+    opacity 200ms ease-out,
+    overlay 200ms allow-discrete,
+    display 200ms allow-discrete;
+}
+
+.tearsheet:not([open])::backdrop {
+  opacity: 0;
+}
+
+@starting-style {
+  .tearsheet[open]::backdrop {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .journal-choice {
+    transition: none;
+  }
+
+  /* The sheet still opens and closes — it just arrives in place instead of
+   * travelling there (design.md §5's reduced-motion rule). */
+  .tearsheet,
+  .tearsheet-panel,
+  .tearsheet::backdrop {
     transition: none;
   }
 }

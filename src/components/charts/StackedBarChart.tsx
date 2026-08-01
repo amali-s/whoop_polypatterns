@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { stack } from 'd3-shape';
 import { utcFormat } from 'd3-time-format';
 import { scaleBand, scaleLinear } from './scales';
-import { useChartDimensions } from './useChartDimensions';
+import {
+  useChartDimensions,
+  CHART_PLOT_HEIGHT,
+  WRAPPED_AXIS_BOTTOM_MARGIN,
+} from './useChartDimensions';
 import { ChartSvg } from './ChartSvg';
 import { Axis } from './Axis';
 import { Legend } from './Legend';
@@ -21,6 +25,16 @@ import { chartTransitionDuration } from './motion';
 // returns null renders as a VISIBLE GAP — no bar, never a zero-height stack.
 // Its day still occupies a band slot on the x axis and its table row reads
 // "no data", so a gap is a gap everywhere, including to screen readers.
+//
+// SIZING (2026-08-01): the height is the shared CHART_PLOT_HEIGHT (320px)
+// rather than this chart's old aspect-ratio height, so sleep stages,
+// recovery-vs-strain, HRV and RHR all read at the same size. The per-segment
+// --color-muted hairline is gone too (charts.css/.chart-bar-segment) — the
+// sleep-stage palette that replaced the borrowed chart hues is self-separating.
+//
+// OUT OF SCOPE, deliberately: the 3-month view still renders the same bars at
+// whatever width 90 bands leave. Narrowing them toward a line-like treatment
+// is ROADMAP 6.2 (blocked on a visual reference) and is NOT attempted here.
 
 /** Keys of T whose values are `number | null` — the only stackable fields. */
 type NumericKeyOf<T> = {
@@ -53,6 +67,12 @@ export interface StackedBarChartProps<T> {
   unit?: string;
 }
 
+// Shared plot height, so this chart matches the three combo charts exactly.
+const PLOT_HEIGHT = CHART_PLOT_HEIGHT;
+
+// The bottom gutter is the shared deeper one: x labels may wrap to two lines.
+const MARGIN = { top: 8, right: 8, left: 44, bottom: WRAPPED_AXIS_BOTTOM_MARGIN };
+
 const shortDay = utcFormat('%b %-d');
 const longDay = utcFormat('%B %-d, %Y');
 
@@ -71,7 +91,10 @@ export function StackedBarChart<T>({
   tableCaption,
   unit = 'minutes',
 }: StackedBarChartProps<T>) {
-  const [wrapperRef, dims] = useChartDimensions({ left: 44, bottom: 28 }, 0.32);
+  // Pass MARGIN + an (inert) aspect ratio for boundedWidth only; the height is
+  // pinned to PLOT_HEIGHT, so dims.height is ignored (the 4.3/4.15 precedent).
+  const [wrapperRef, dims] = useChartDimensions(MARGIN, 0.32);
+  const boundedHeight = Math.max(0, PLOT_HEIGHT - MARGIN.top - MARGIN.bottom);
   const { tooltip, show, hide, onKeyDown } = useTooltip<T>();
 
   // Entrance animation, gated on reduced motion (design.md §5.2 rule 5): bars
@@ -104,8 +127,8 @@ export function StackedBarChart<T>({
   }, [barData, total]);
 
   const yScale = useMemo(
-    () => scaleLinear().domain([0, yMax]).range([dims.boundedHeight, 0]).nice(),
-    [yMax, dims.boundedHeight],
+    () => scaleLinear().domain([0, yMax]).range([boundedHeight, 0]).nice(),
+    [yMax, boundedHeight],
   );
 
   const stackedSeries = useMemo(() => {
@@ -158,16 +181,21 @@ export function StackedBarChart<T>({
   return (
     <div className="chart-wrapper" ref={wrapperRef}>
       {dims.width > 0 && (
-        <ChartSvg width={dims.width} height={dims.height} title={title} desc={desc}>
+        <ChartSvg width={dims.width} height={PLOT_HEIGHT} title={title} desc={desc}>
           <g transform={`translate(${dims.margin.left}, ${dims.margin.top})`}>
-            <Axis scale={yScale} orientation="left" length={dims.boundedHeight} />
-            <g transform={`translate(0, ${dims.boundedHeight})`}>
+            <Axis scale={yScale} orientation="left" length={boundedHeight} />
+            <g transform={`translate(0, ${boundedHeight})`}>
               <Axis
                 scale={xScale}
                 orientation="bottom"
                 length={dims.boundedWidth}
                 tickValues={tickValues}
                 format={(value) => formatDay(String(value), shortDay)}
+                // Let a date label wrap rather than run into its neighbour:
+                // the budget is the horizontal share each tick actually owns.
+                maxLabelWidth={
+                  tickValues.length > 0 ? dims.boundedWidth / tickValues.length : undefined
+                }
               />
             </g>
             {stackedSeries.map((layer, layerIndex) => {

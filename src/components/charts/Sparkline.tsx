@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { line } from 'd3-shape';
+import { useEffect, useId, useMemo, useState } from 'react';
+import { area, line } from 'd3-shape';
 import { utcFormat } from 'd3-time-format';
 import { scaleLinear, safeExtent } from './scales';
 import { useChartDimensions } from './useChartDimensions';
@@ -14,9 +14,22 @@ import type { DailyMetricPoint } from '../../../api/_lib/transforms';
 // treatment (and the placeholder it replaces). Deliberately fixed to
 // `skinTempCelsius` off DailyMetricPoint rather than generic over an accessor
 // (the RecoveryStrainComboChart precedent: one metric, one known unit).
-// Stroke/dot are --color-chart-3, the §1/§4 skin-temp token — which is ALSO
-// the period-meter token; those two tiles do co-occur on this dashboard view,
-// an ambiguity design.md §4 already accepts. Do not "fix" it with another hue.
+//
+// COLOR (changed 2026-08-01): the line, its endpoint dot and the gradient area
+// beneath are --color-skin-temp (#F4801B), a token that belongs to THIS CHART
+// ALONE. Skin temp used to share --color-chart-3 with the period meter — a
+// double-duty design.md §1/§4 documented and accepted even though the two
+// tiles co-occur on this view. That sharing is over: chart-3 was repointed to
+// the period meter's pale pink, so skin temp needed its own hue rather than a
+// hue that now means "cycle day".
+//
+// AREA (added 2026-08-01): a vertical gradient from the token at the line down
+// to fully transparent at the plot floor. The area carries NO stroke of its
+// own and the line keeps no casing/outline — the line's own 2px stroke is the
+// only stroke in the chart, since without it there would be no line at all.
+//
+// VALUE PLACEMENT (changed 2026-08-01): the numeric reading renders ABOVE the
+// plot, not below it. Reading order is now value-then-shape.
 //
 // NULL DISCIPLINE (transforms.ts header): `.defined()` BREAKS the line at a
 // null day — a gap is drawn as a gap, never interpolated across. Null skin
@@ -50,7 +63,12 @@ export interface SparklineProps {
   noDataCaption?: string;
 }
 
-const SPARK_COLOR = 'var(--color-chart-3)';
+/**
+ * The skin-temp hue. Its OWN token as of 2026-08-01 — this is no longer the
+ * shared skin-temp/period-meter --color-chart-3 the comment here used to name.
+ * Drives the line, the endpoint dot, and the top stop of the area gradient.
+ */
+const SPARK_COLOR = 'var(--color-skin-temp)';
 
 // Fixed plot height — the 64px the placeholder/bodyHeight occupied; the value
 // line renders below it (the tile drops ChartContainer's bodyHeight prop, per
@@ -76,6 +94,9 @@ function formatTemp(value: number): string {
 }
 
 export function Sparkline({ data, title, tableCaption, noDataCaption }: SparklineProps) {
+  // Gradient ids must be unique per instance — two Sparklines on one page
+  // would otherwise both resolve to whichever <linearGradient> rendered first.
+  const gradientId = useId();
   // The hook's aspect-ratio height fits the full-width charts, not a fixed
   // bento slot — use its responsive WIDTH only and pin the height to
   // PLOT_HEIGHT (the margins passed here still shape dims.boundedWidth).
@@ -126,6 +147,18 @@ export function Sparkline({ data, title, tableCaption, noDataCaption }: Sparklin
     return generator(data) ?? '';
   }, [data, xAt, yScale]);
 
+  // Same `.defined()` gate as the line, so the fill breaks at exactly the same
+  // gaps the line does — a filled band spanning a dataless run would assert
+  // readings that don't exist.
+  const areaPath = useMemo(() => {
+    const generator = area<DailyMetricPoint>()
+      .defined((d) => d.skinTempCelsius != null)
+      .x((_, i) => xAt(i))
+      .y0(boundedHeight)
+      .y1((d) => yScale(d.skinTempCelsius ?? 0));
+    return generator(data) ?? '';
+  }, [data, xAt, yScale, boundedHeight]);
+
   // Latest non-null reading — marks the line's current end with a dot and
   // feeds the visible value text (rule 4). Plain scan, no useMemo — ≤30
   // items, and App's latestScored takes the same unmemoized approach.
@@ -173,13 +206,41 @@ export function Sparkline({ data, title, tableCaption, noDataCaption }: Sparklin
 
   return (
     <div className="sparkline">
+      {/* Rule 4: the latest reading as real text in --color-text (muted "—"
+          when noData) — never carried by the chart hue alone. Sits ABOVE the
+          plot as of 2026-08-01. */}
+      <p className={noData ? 'sparkline-value sparkline-value-muted' : 'sparkline-value'}>
+        {latest ? `${formatTemp(latest.value)}°C` : '—'}
+      </p>
       <div className="chart-wrapper" ref={wrapperRef}>
         {dims.width > 0 && (
           <ChartSvg width={dims.width} height={PLOT_HEIGHT} title={title} desc={desc}>
+            <defs>
+              {/* Vertical fade: full --color-skin-temp where it meets the line,
+                  fully transparent at the plot floor. `stopOpacity` rather
+                  than a transparent stop COLOR on purpose — Safari
+                  interpolates a bare `transparent` stop through black. */}
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={SPARK_COLOR} stopOpacity={0.45} />
+                <stop offset="100%" stopColor={SPARK_COLOR} stopOpacity={0} />
+              </linearGradient>
+            </defs>
             {/* aria-hidden: the SVG's title/desc names the chart and the data
                 table (rule 2) carries every value. In the noData state the
                 path/dot simply don't render — an honestly empty plot area. */}
             <g aria-hidden="true" transform={`translate(${MARGIN.left}, ${MARGIN.top})`}>
+              {areaPath && (
+                <path
+                  className="sparkline-area"
+                  d={areaPath}
+                  fill={`url(#${gradientId})`}
+                  stroke="none"
+                  style={{
+                    opacity: entered ? 1 : 0,
+                    transition: duration > 0 ? `opacity ${duration}ms ease-out` : undefined,
+                  }}
+                />
+              )}
               {linePath && (
                 <path
                   className="sparkline-line"
@@ -220,11 +281,6 @@ export function Sparkline({ data, title, tableCaption, noDataCaption }: Sparklin
           </ChartSvg>
         )}
       </div>
-      {/* Rule 4: the latest reading as real text in --color-text (muted "—"
-          when noData) — never carried by the chart hue alone. */}
-      <p className={noData ? 'sparkline-value sparkline-value-muted' : 'sparkline-value'}>
-        {latest ? `${formatTemp(latest.value)}°C` : '—'}
-      </p>
       {/* aria-hidden: the <desc> already says no day has a reading — this is
           the sighted-user copy (ProgressRing/DotMatrix caption precedent). */}
       {noData && noDataCaption && (

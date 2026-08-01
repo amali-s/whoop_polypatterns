@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { area, line } from 'd3-shape';
+import { line } from 'd3-shape';
 import { utcFormat } from 'd3-time-format';
 import { scaleBand, scaleLinear, safeExtent } from './scales';
-import { useChartDimensions } from './useChartDimensions';
+import {
+  useChartDimensions,
+  CHART_PLOT_HEIGHT,
+  WRAPPED_AXIS_BOTTOM_MARGIN,
+} from './useChartDimensions';
 import { ChartSvg } from './ChartSvg';
 import { Axis } from './Axis';
 import { Legend } from './Legend';
@@ -13,11 +17,24 @@ import type { ChartDataColumn } from './ChartDataTable';
 import { chartTransitionDuration } from './motion';
 import type { DailyMetricPoint } from '../../../api/_lib/transforms';
 
-// Combo chart (4.2): Recovery % as a line OVER day strain as an area, one x
-// (day) scale, TWO independent y scales — readiness vs. load on the same day
+// Combo chart (4.2): Recovery % and day strain as TWO LINES on one x (day)
+// scale with two independent y scales — readiness vs. load on the same day
 // axis. Deliberately NOT generic over T like StackedBarChart: this is a fixed
 // metric pairing (recoveryScore + strain off DailyMetricPoint), and a second
 // axis only makes sense when the two units are known to the component.
+//
+// STRAIN IS A PLAIN LINE as of 2026-08-01 (confirmed): the area fill beneath
+// it is gone. Two lines is the honest shape here anyway — an area reads as an
+// accumulated magnitude, and the chart's point is comparing the two daily
+// series against each other, not weighing strain's mass. The name "combo
+// chart" is kept because the component, its props and its tile wiring are
+// otherwise unchanged.
+//
+// STROKES — the --color-muted outline on the recovery points is removed
+// (confirmed), as is the hairline on the legend swatches. The muted CASING
+// under the recovery LINE is deliberately KEPT: it was not in scope, and
+// #6BCB3C is 2.05:1 on the white card, so the casing is still what carries
+// that line past §5.2 rule 4's 3:1 non-text threshold.
 //
 // DUAL-SCALE CHOICE: recovery is a bounded percentage (left axis, fixed
 // [0, 100] so 50% always sits mid-chart regardless of the window's values);
@@ -39,8 +56,27 @@ export interface RecoveryStrainComboChartProps {
   tableCaption: string;
 }
 
-const RECOVERY_COLOR = 'var(--color-chart-6)';
+// Recovery reads --color-positive (#6BCB3C), NOT the old --color-chart-6:
+// after the 2026-08-01 token pass, --color-positive IS the recovery green —
+// the same value the recovery ring's green zone fills with — so the line and
+// the ring finally agree. Strain keeps --color-chart-5, repointed to #02B3FF.
+const RECOVERY_COLOR = 'var(--color-positive)';
 const STRAIN_COLOR = 'var(--color-chart-5)';
+
+// Fixed plot height — the shared CHART_PLOT_HEIGHT (320px). Replaces this
+// chart's old aspect-ratio height (0.32 x width), which made it a different
+// size from the HRV/RHR tiles at every viewport; the four full-series charts
+// are now one size (confirmed 2026-08-01).
+const PLOT_HEIGHT = CHART_PLOT_HEIGHT;
+
+// Symmetric left/right gutters: this chart carries an axis on BOTH edges. The
+// bottom uses the shared deeper gutter because x labels may wrap to two lines.
+const MARGIN = {
+  top: 8,
+  left: 44,
+  right: 44,
+  bottom: WRAPPED_AXIS_BOTTOM_MARGIN,
+};
 
 const shortDay = utcFormat('%b %-d');
 const longDay = utcFormat('%B %-d, %Y');
@@ -61,8 +97,10 @@ export function RecoveryStrainComboChart({
   title,
   tableCaption,
 }: RecoveryStrainComboChartProps) {
-  // Symmetric left/right margins: this chart carries an axis on BOTH edges.
-  const [wrapperRef, dims] = useChartDimensions({ left: 44, right: 44, bottom: 28 }, 0.32);
+  // Pass MARGIN + an (inert) aspect ratio for boundedWidth only; the height is
+  // pinned to PLOT_HEIGHT, so dims.height is ignored (the 4.3/4.15 precedent).
+  const [wrapperRef, dims] = useChartDimensions(MARGIN, 0.32);
+  const boundedHeight = Math.max(0, PLOT_HEIGHT - MARGIN.top - MARGIN.bottom);
   const { tooltip, show, hide, onKeyDown } = useTooltip<DailyMetricPoint>();
 
   // Entrance animation, gated on reduced motion (design.md §5.2 rule 5) —
@@ -92,14 +130,14 @@ export function RecoveryStrainComboChart({
   // Recovery: fixed percentage domain — never rescaled to the data, so a bad
   // week doesn't visually inflate into a good one.
   const recoveryScale = useMemo(
-    () => scaleLinear().domain([0, 100]).range([dims.boundedHeight, 0]),
-    [dims.boundedHeight],
+    () => scaleLinear().domain([0, 100]).range([boundedHeight, 0]),
+    [boundedHeight],
   );
 
   const strainMax = useMemo(() => safeExtent(data, (d) => d.strain)[1], [data]);
   const strainScale = useMemo(
-    () => scaleLinear().domain([0, strainMax]).range([dims.boundedHeight, 0]).nice(),
-    [strainMax, dims.boundedHeight],
+    () => scaleLinear().domain([0, strainMax]).range([boundedHeight, 0]).nice(),
+    [strainMax, boundedHeight],
   );
 
   const xCenter = useMemo(() => {
@@ -110,18 +148,11 @@ export function RecoveryStrainComboChart({
   // The `?? 0` fallbacks below are unreachable — `.defined()` already excludes
   // null days from each segment — they only satisfy the type checker without
   // an assertion.
-  const strainAreaPath = useMemo(() => {
-    const generator = area<DailyMetricPoint>()
-      .defined((d) => d.strain != null)
-      .x(xCenter)
-      .y0(dims.boundedHeight)
-      .y1((d) => strainScale(d.strain ?? 0));
-    return generator(data) ?? '';
-  }, [data, xCenter, strainScale, dims.boundedHeight]);
-
-  // Crisp full-opacity top edge on the strain area: the reduced-opacity fill
-  // alone would fail the 3:1 non-text boundary (design.md §5.2 rule 4).
-  const strainEdgePath = useMemo(() => {
+  //
+  // One path for strain since 2026-08-01: the area generator (and its separate
+  // `y0` baseline) is gone, so this IS the strain series, not the top edge of
+  // a fill.
+  const strainLinePath = useMemo(() => {
     const generator = line<DailyMetricPoint>()
       .defined((d) => d.strain != null)
       .x(xCenter)
@@ -189,32 +220,38 @@ export function RecoveryStrainComboChart({
   return (
     <div className="chart-wrapper" ref={wrapperRef}>
       {dims.width > 0 && (
-        <ChartSvg width={dims.width} height={dims.height} title={title} desc={desc}>
+        <ChartSvg width={dims.width} height={PLOT_HEIGHT} title={title} desc={desc}>
           <g transform={`translate(${dims.margin.left}, ${dims.margin.top})`}>
-            <Axis scale={recoveryScale} orientation="left" length={dims.boundedHeight} />
+            <Axis scale={recoveryScale} orientation="left" length={boundedHeight} />
             {/* Strain's axis lives on the right edge — a translated LEFT axis
-                would paint its tick labels inside the plot, over the area. */}
+                would paint its tick labels inside the plot, over the lines. */}
             <g transform={`translate(${dims.boundedWidth}, 0)`}>
-              <Axis scale={strainScale} orientation="right" length={dims.boundedHeight} />
+              <Axis scale={strainScale} orientation="right" length={boundedHeight} />
             </g>
-            <g transform={`translate(0, ${dims.boundedHeight})`}>
+            <g transform={`translate(0, ${boundedHeight})`}>
               <Axis
                 scale={xScale}
                 orientation="bottom"
                 length={dims.boundedWidth}
                 tickValues={tickValues}
                 format={(value) => formatDay(String(value), shortDay)}
+                // Let a date label wrap rather than run into its neighbour:
+                // the budget is the horizontal share each tick actually owns.
+                maxLabelWidth={
+                  tickValues.length > 0 ? dims.boundedWidth / tickValues.length : undefined
+                }
               />
             </g>
             {/* Paths are aria-hidden: the SVG's title/desc names the chart and
                 the data table (rule 2) carries every value; the focusable
                 recovery points below are the keyboard/AT entry into the marks. */}
             <g aria-hidden="true" style={fadeStyle}>
-              <path d={strainAreaPath} fill={STRAIN_COLOR} fillOpacity={0.3} stroke="none" />
-              <path d={strainEdgePath} fill="none" stroke={STRAIN_COLOR} strokeWidth={2} />
-              {/* Muted casing under the recovery line: lime (--color-chart-6)
-                  fails 3:1 against the white card (rule 4), so it wears the
-                  same hairline the legend swatches and 4.1's bar segments do. */}
+              {/* Strain: a plain line, no area fill (2026-08-01). */}
+              <path d={strainLinePath} fill="none" stroke={STRAIN_COLOR} strokeWidth={2} />
+              {/* Muted casing under the recovery line, KEPT: #6BCB3C is 2.05:1
+                  on the white card and still needs it to clear rule 4's 3:1
+                  non-text threshold. Removing the POINT outlines was in scope;
+                  removing this was not. */}
               <path d={recoveryLinePath} fill="none" stroke="var(--color-muted)" strokeWidth={4} />
               <path d={recoveryLinePath} fill="none" stroke={RECOVERY_COLOR} strokeWidth={2} />
             </g>
@@ -240,8 +277,6 @@ export function RecoveryStrainComboChart({
                   cy={cy}
                   r={3.5}
                   fill={RECOVERY_COLOR}
-                  stroke="var(--color-muted)"
-                  strokeWidth={1}
                   style={fadeStyle}
                   tabIndex={0}
                   role="img"

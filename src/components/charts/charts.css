@@ -35,6 +35,27 @@
   color: var(--color-text);
   font-size: var(--text-xs);
   white-space: nowrap;
+  /* Ease-in reveal on hover AND on press/tap (2026-08-01). An ANIMATION, not
+   * a transition: the tooltip is conditionally mounted, so there is no "from"
+   * state for a transition to interpolate out of. Touch is covered without
+   * new handlers — the marks carry tabIndex=0, so a tap focuses them and the
+   * same show() path runs that hover uses.
+   *
+   * 160ms is an ASSUMPTION (the brief said "a short, subtle ease-in, e.g.
+   * ~150-200ms" and left the exact value open) — one constant, shared by all
+   * four charts, so they can't drift. */
+  animation: chart-tooltip-in 160ms ease-in;
+}
+
+@keyframes chart-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - var(--space-2) + 4px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, calc(-100% - var(--space-2)));
+  }
 }
 
 .legend-item-toggle {
@@ -55,13 +76,16 @@
   opacity: 0.5;
 }
 
-/* Stacked-bar segments: some LOCKED chart hues fail the 3:1 non-text
- * threshold against the white card (design.md §5.2 rule 4), so every
- * segment wears the same muted hairline as the legend swatches —
- * regardless of which hue fills it. */
+/* Stacked-bar segments (sleep stages). The muted 1px hairline every segment
+ * used to wear was REMOVED 2026-08-01 at the user's direction. It existed
+ * because the borrowed chart-1/chart-4 hues failed the 3:1 non-text threshold;
+ * the dedicated --color-sleep-* ramp that replaced them is self-separating
+ * (four clearly stepped values, adjacent in the stack), and the stage values
+ * are carried in real text by the tooltip, the legend and the data table, so
+ * §5.2 rule 4 is still met without an outline. The rule is kept as a named
+ * hook for the segments rather than deleted outright. */
 .chart-bar-segment {
-  stroke: var(--color-muted);
-  stroke-width: 1;
+  stroke: none;
 }
 
 /* Focusable chart marks (design.md §5.2 rule 3 — roving tabindex points). */
@@ -76,7 +100,18 @@
 
 /* Visually-hidden data table fallback (design.md §5.2 rule 2) — same
  * pattern as the classic .sr-only utility: present to the accessibility
- * tree, clipped from sighted layout. */
+ * tree, clipped from sighted layout.
+ *
+ * The class now sits on a WRAPPING <div>, not on the <table> (see
+ * ChartDataTable.tsx): `overflow` has no effect on a `display: table` box, so
+ * the old markup laid the nowrap table out at full natural width and pushed
+ * document.scrollWidth to 787px at a 375px viewport. `contain: layout paint`
+ * is belt-and-braces on top of `overflow: hidden` — it takes the subtree out
+ * of ancestors' scrollable overflow entirely, so no future caption length can
+ * re-widen the page. Deliberately NOT `contain: strict`/`content-visibility`:
+ * size containment isn't needed once the box is 1×1, and
+ * `content-visibility: hidden` would drop the table out of the accessibility
+ * tree — the exact opposite of what this element is for. */
 .sr-only-table {
   position: absolute;
   width: 1px;
@@ -84,7 +119,8 @@
   padding: 0;
   margin: -1px;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  contain: layout paint;
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }
@@ -222,9 +258,28 @@
 }
 
 /* Decorative arrow (aria-hidden in the markup); inherits the muted text color,
- * never a semantic red/green. */
+ * never a semantic red/green. Shared by StatDelta and by the recovery/strain
+ * rings' TrendIndicator since 2026-08-01. */
 .stat-delta-arrow {
   color: var(--color-muted);
+}
+
+/* 2026-08-01 — the two trailing-average lines under a recovery/strain ring.
+ * The ring is centered in the tile; these sit full-width beneath it so the two
+ * windows read as a stacked pair rather than floating beside the donut. */
+.ring-trends {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+/* A ring tile is a small bento cell holding a donut AND two comparison lines,
+ * so the trend text steps down from .stat-delta-trend's --text-sm. The stat
+ * tiles (one value, one line) keep the larger size. */
+.stat-delta-trend-compact {
+  font-size: var(--text-xs);
+  line-height: 1.35;
 }
 
 .stat-delta-caption {
@@ -287,8 +342,15 @@
   }
 
   .sparkline-line,
+  .sparkline-area,
   .sparkline-latest-dot {
     transition: none !important;
+  }
+
+  /* The tooltip's ease-in reveal (2026-08-01) is an animation, not a
+   * transition, so it needs its own kill switch here. */
+  .chart-tooltip {
+    animation: none;
   }
 
   .correlation-dots {

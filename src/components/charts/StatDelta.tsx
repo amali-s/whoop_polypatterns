@@ -1,4 +1,5 @@
 import type { BaselineDelta } from '../../lib/stats';
+import { TrendArrow } from './TrendIndicator';
 
 // Phase 4.12 — headline stat + trailing-average delta (bento Calories & Sleep
 // tiles). One reusable presentational component; the two tiles differ ONLY in
@@ -14,7 +15,10 @@ import type { BaselineDelta } from '../../lib/stats';
 //   fallback table, so there is nothing to duplicate into the a11y tree.
 // - rule 4 is the LIVE one: the delta is NEVER encoded by color or by a bare
 //   glyph alone. It is a real text sentence ("312 cal above your recent
-//   average"); the ▲/▼ is decorative and `aria-hidden`. We deliberately do NOT
+//   average"); the ▲/▼ is decorative and `aria-hidden`, and since 2026-08-01 it
+//   comes from the shared `TrendArrow` — the recovery/strain rings render the
+//   same indicator, and two definitions of "the trend triangle" would drift.
+//   We deliberately do NOT
 //   use --color-positive / --color-negative — more calories or less sleep is
 //   not semantically good or bad, and the recovery rings already spend those
 //   tokens on zones. Text is --color-text / --color-muted; chart hues are never
@@ -94,7 +98,6 @@ export function StatDelta({
   // "0 min above" (a contradiction).
   const magnitude = deltaToDisplay(Math.abs(delta.delta));
   const above = delta.delta > 0;
-  const arrow = magnitude === 0 ? null : above ? '▲' : '▼';
   const sentence =
     magnitude === 0
       ? 'In line with your recent average'
@@ -104,11 +107,7 @@ export function StatDelta({
     <div className="stat-delta">
       <p className="stat-delta-value">{formatValue(delta.value)}</p>
       <p className="stat-delta-trend">
-        {arrow && (
-          <span className="stat-delta-arrow" aria-hidden="true">
-            {arrow}{' '}
-          </span>
-        )}
+        <TrendArrow direction={magnitude === 0 ? null : above ? 'up' : 'down'} />
         {sentence}
       </p>
       {asOfLabel && <p className="stat-delta-asof">{asOfLabel}</p>}

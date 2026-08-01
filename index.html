@@ -4,6 +4,31 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Roboto — the confirmed heading face (2026-08-01). Frutiger, the
+      historically "correct" Aero face, is proprietary (Linotype) and has no
+      web-font licence, so it was never an option; design.md §1's earlier
+      Nunito Sans / Mulish candidates were never imported.
+
+      FLAGGED — loading strategy is a judgment call, not something the repo had
+      a convention for: nothing was loaded here before, and the token stack
+      simply fell back to system faces. This uses Google Fonts, the smallest
+      change that works, and it means the browser makes a third-party request
+      (fonts.googleapis.com / fonts.gstatic.com sees the visitor's IP). For a
+      health dashboard that may not be wanted; self-hosting the two woff2 files
+      under /public and declaring @font-face locally removes the request
+      entirely and is a drop-in swap if preferred.
+
+      Only 400/500/700 are requested — the weights --weight-regular/-medium/
+      -bold actually use. `display=swap` renders in the fallback face
+      immediately rather than blocking on the download.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
+    />
     <title>whoop-polypatterns</title>
   </head>
   <body>

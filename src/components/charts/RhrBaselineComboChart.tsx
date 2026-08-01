@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { area, line } from 'd3-shape';
 import { utcFormat } from 'd3-time-format';
-import { scaleBand, scaleLinear, safeExtent } from './scales';
-import { useChartDimensions } from './useChartDimensions';
+import { scaleBand, scaleLinear } from './scales';
+import {
+  useChartDimensions,
+  CHART_PLOT_HEIGHT,
+  WRAPPED_AXIS_BOTTOM_MARGIN,
+} from './useChartDimensions';
 import { ChartSvg } from './ChartSvg';
 import { Axis } from './Axis';
 import { Tooltip } from './Tooltip';
@@ -22,8 +26,14 @@ import { buildRollingBaseline, type DailyMetricPoint } from '../../../api/_lib/t
 // scale, color, or null-handling choices already made once.
 //
 // SINGLE-SCALE CHOICE (4.3 precedent) — line and area are the SAME quantity
-// (RHR in BPM), so they share ONE zero-based y-scale, never two independent
-// axes: a second axis would make "above/below baseline" meaningless.
+// (RHR in BPM), so they share ONE y-scale, never two independent axes: a
+// second axis would make "above/below baseline" meaningless.
+//
+// Y DOMAIN — FIXED 50-90 BPM (confirmed 2026-08-01), replacing the previous
+// data-driven [0, max].nice(), for the same reasons as 4.3's HRV chart: a
+// given RHR always sits at the same height, so the chart is comparable across
+// range toggles and across weeks. Not clamped — a day outside 50-90 draws
+// outside the plotted band rather than being silently pinned to the edge.
 //
 // BASELINE — computed CLIENT-SIDE from the same `data` prop via the pure,
 // already-tested buildRollingBaseline (api/_lib/transforms), whose own header
@@ -45,12 +55,14 @@ import { buildRollingBaseline, type DailyMetricPoint } from '../../../api/_lib/t
 // path into a visible gap; the band x-domain still holds every day so the gap
 // occupies real axis width (transforms.ts header, 4.1–4.3 precedent).
 //
-// CONTRAST (design.md §1/§4, §5.2 rule 4) — RHR actual and HRV actual
-// deliberately SHARE --color-chart-7 (dark magenta, 4.5:1 — passes, no
-// casing needed) and RHR/HRV baseline SHARE --color-chart-4 (pale mustard,
-// 1.60:1 — fails 3:1, so its area edge wears the same muted hairline 4.3
-// uses). Per design.md §1's "HRV/RHR sharing" note this is fine because the
-// two metrics never appear in the same chart.
+// COLORS / STROKES — RHR actual and HRV actual still SHARE --color-chart-7
+// and RHR/HRV baseline still SHARE --color-chart-4 (design.md §1's "HRV/RHR
+// sharing" note; fine because the two metrics never appear in one chart), but
+// both tokens were repointed 2026-08-01 — chart-7 to warm coral #FFA1A0,
+// chart-4 to pale blue-grey #D9E3F0. Every --color-muted casing/outline is
+// gone with them (line, baseline edge, and the focusable points), matching
+// 4.3 exactly; §5.2 rule 4 is met by shape plus the real-text values in the
+// tooltip, aria-labels and data table.
 
 export interface RhrBaselineComboChartProps {
   /** One point per calendar day, ascending (buildDailySeries output). The baseline and data table both derive from this same prop. */
@@ -69,13 +81,21 @@ const BASELINE_COLOR = 'var(--color-chart-4)';
 // chart's window can be tuned independently later without an implicit coupling.
 const RHR_BASELINE_WINDOW_DAYS = 7;
 
-// Fixed plot height — same compact full-width bento band as 4.3 (the
-// placeholder/bodyHeight this replaces was already 128px).
-const PLOT_HEIGHT = 128;
+// Fixed plot height — the shared CHART_PLOT_HEIGHT (320px), so this chart
+// reads at exactly the same size as sleep stages, recovery-vs-strain and HRV
+// (confirmed 2026-08-01; it was 128px).
+const PLOT_HEIGHT = CHART_PLOT_HEIGHT;
 
-// Compact axis gutters: RHR is a 2–3 digit BPM value, so the same left gutter
-// as 4.3's ms labels fits; bottom/top/right are unchanged from that precedent.
-const MARGIN = { top: 8, right: 10, bottom: 24, left: 36 };
+// Axis gutters: RHR is a 2–3 digit BPM value, so the same left gutter as 4.3's
+// ms labels fits; the bottom uses the shared deeper gutter because x labels may
+// wrap to two lines.
+const MARGIN = { top: 8, right: 10, bottom: WRAPPED_AXIS_BOTTOM_MARGIN, left: 36 };
+
+/**
+ * Fixed y-axis extent in BPM (confirmed 2026-08-01). See the Y DOMAIN note in
+ * the header for why it is fixed and why it is not clamped.
+ */
+const RHR_Y_DOMAIN: [number, number] = [50, 90];
 
 const shortDay = utcFormat('%b %-d');
 const longDay = utcFormat('%B %-d, %Y');
@@ -146,12 +166,12 @@ export function RhrBaselineComboChart({ data, title, tableCaption }: RhrBaseline
     [days, dims.boundedWidth],
   );
 
-  // ONE shared y-scale, zero-based: the baseline is a mean OF the RHR values,
-  // so max(RHR) bounds both series; a zero floor makes the area an honest fill.
-  const rhrMax = useMemo(() => safeExtent(points, (p) => p.rhr)[1], [points]);
+  // ONE shared y-scale for both series — the baseline is a mean OF the RHR
+  // values, so plotting them on different scales would make "above/below
+  // baseline" meaningless. Fixed extent, not derived from the data.
   const yScale = useMemo(
-    () => scaleLinear().domain([0, rhrMax]).range([boundedHeight, 0]).nice(),
-    [rhrMax, boundedHeight],
+    () => scaleLinear().domain(RHR_Y_DOMAIN).range([boundedHeight, 0]),
+    [boundedHeight],
   );
 
   const xCenter = useMemo(() => {
@@ -251,20 +271,22 @@ export function RhrBaselineComboChart({ data, title, tableCaption }: RhrBaseline
                 length={dims.boundedWidth}
                 tickValues={tickValues}
                 format={(value) => formatDay(String(value), shortDay)}
+                // Let a date label wrap rather than run into its neighbour:
+                // the budget is the horizontal share each tick actually owns.
+                maxLabelWidth={
+                  tickValues.length > 0 ? dims.boundedWidth / tickValues.length : undefined
+                }
               />
             </g>
             {/* Paths are aria-hidden: the SVG's title/desc names the chart and
                 the data table (rule 2) carries every value; the focusable RHR
                 points below are the keyboard/AT entry into the marks. */}
             <g aria-hidden="true" style={fadeStyle}>
-              <path d={baselineAreaPath} fill={BASELINE_COLOR} fillOpacity={0.3} stroke="none" />
-              {/* Muted casing under the baseline edge: pale mustard
-                  (--color-chart-4) fails 3:1 against the white card (rule 4),
-                  so it wears the same hairline the legend swatches and 4.3's
-                  baseline line do. */}
-              <path d={baselineEdgePath} fill="none" stroke="var(--color-muted)" strokeWidth={3} />
+              {/* Baseline area at 50% opacity (confirmed 2026-08-01, was 30%),
+                  with its own edge on top in the same hue. No muted casing on
+                  either — see the COLORS / STROKES note in the header. */}
+              <path d={baselineAreaPath} fill={BASELINE_COLOR} fillOpacity={0.5} stroke="none" />
               <path d={baselineEdgePath} fill="none" stroke={BASELINE_COLOR} strokeWidth={2} />
-              {/* RHR actual line: --color-chart-7 passes 4.5:1, so no casing. */}
               <path d={rhrLinePath} fill="none" stroke={RHR_COLOR} strokeWidth={2} />
             </g>
             {/* Focusable points on the RHR line (rule 3) — one Tab stop per
@@ -289,8 +311,6 @@ export function RhrBaselineComboChart({ data, title, tableCaption }: RhrBaseline
                   cy={cy}
                   r={3.5}
                   fill={RHR_COLOR}
-                  stroke="var(--color-muted)"
-                  strokeWidth={1}
                   style={fadeStyle}
                   tabIndex={0}
                   role="img"

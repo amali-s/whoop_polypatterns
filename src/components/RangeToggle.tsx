@@ -88,8 +88,32 @@ export function RangeToggle<T extends string | number>({
     }
   }
 
+  // Index of the selected option — drives the sliding pill's position. -1 (a
+  // value outside `options`) hides the pill rather than parking it under the
+  // first segment and claiming a selection that isn't there.
+  const selectedIndex = options.findIndex((option) => option.value === value);
+
   return (
     <div role="radiogroup" aria-label={label} className={cx('range-toggle', className)}>
+      {/* The SLIDING PILL (2026-08-01). One shared element that translates
+          between segments instead of each segment toggling its own background,
+          so the fill appears to travel. aria-hidden: it is the same selection
+          `aria-checked` already announces, and the segments' own labels stay
+          the accessible content.
+          Position/width come through custom properties rather than a computed
+          `left`, so the CSS owns the geometry and no measurement is needed. */}
+      {selectedIndex >= 0 && (
+        <span
+          className="range-toggle-thumb"
+          aria-hidden="true"
+          style={
+            {
+              '--thumb-index': selectedIndex,
+              '--thumb-count': options.length,
+            } as React.CSSProperties
+          }
+        />
+      )}
       {options.map((option, index) => {
         const selected = option.value === value;
         return (

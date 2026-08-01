@@ -35,6 +35,49 @@ export interface AxisProps {
   tickValues?: (string | number | Date)[];
   format?: (value: string | number | Date) => string;
   label?: string;
+  /**
+   * Bottom axis only (added 2026-08-01). Horizontal space in px each tick
+   * label may occupy before it WRAPS onto a second line. SVG `<text>` never
+   * wraps on its own, so without this a long label just runs into (and
+   * overlaps) its neighbours — the failure this prop exists to fix.
+   *
+   * Omitted = the pre-2026-08-01 behavior: one line, no wrapping, ever.
+   */
+  maxLabelWidth?: number;
+}
+
+/**
+ * Rough advance width of a label at the axis font size (--text-xs, 12px).
+ * 0.58em per character is a conservative average for a humanist sans at small
+ * sizes — SVG gives us no measurement API before paint, and the alternative
+ * (render, measure, re-render) would cost a layout thrash on every resize for
+ * a decision that only needs to be approximately right.
+ */
+const AXIS_CHAR_WIDTH = 12 * 0.58;
+
+/**
+ * Split a tick label across at most two lines when it won't fit `maxWidth`.
+ * Breaks at the LAST space that still leaves the first line under budget, so
+ * "Jul 5" stays whole at any realistic tick spacing and only genuinely long
+ * labels split. Returns a single-element array when it fits or has no space
+ * to break at — a hyphenless mid-word break would be worse than the overlap.
+ */
+function wrapTickLabel(text: string, maxWidth: number | undefined): string[] {
+  if (maxWidth === undefined || text.length * AXIS_CHAR_WIDTH <= maxWidth) {
+    return [text];
+  }
+  const words = text.split(' ');
+  if (words.length < 2) {
+    return [text];
+  }
+  let split = 1;
+  for (let i = 1; i < words.length; i++) {
+    if (words.slice(0, i).join(' ').length * AXIS_CHAR_WIDTH > maxWidth) {
+      break;
+    }
+    split = i;
+  }
+  return [words.slice(0, split).join(' '), words.slice(split).join(' ')];
 }
 
 const dayFormat = timeFormat('%b %-d');
@@ -59,6 +102,7 @@ export function Axis({
   tickValues,
   format = defaultFormat,
   label,
+  maxLabelWidth,
 }: AxisProps) {
   const values = useMemo<(string | number | Date)[]>(() => {
     if (tickValues) {
@@ -84,6 +128,9 @@ export function Axis({
       {values.map((value, i) => {
         const pos = tickPosition(scale, value);
         const key = value instanceof Date ? value.toISOString() : String(value);
+        // Bottom labels may wrap to a second line (see wrapTickLabel); every
+        // other orientation stays single-line as before.
+        const lines = isBottom ? wrapTickLabel(format(value), maxLabelWidth) : [format(value)];
         return (
           <g key={key ?? i} transform={isBottom ? `translate(${pos}, 0)` : `translate(0, ${pos})`}>
             <line x1={0} y1={0} x2={isBottom ? 0 : isRight ? 4 : -4} y2={isBottom ? 4 : 0} />
@@ -93,7 +140,15 @@ export function Axis({
               dy={isBottom ? undefined : '0.32em'}
               textAnchor={isBottom ? 'middle' : isRight ? 'start' : 'end'}
             >
-              {format(value)}
+              {lines.length === 1
+                ? lines[0]
+                : lines.map((lineText, lineIndex) => (
+                    // x is repeated per tspan so line 2 re-anchors at the tick
+                    // rather than continuing from where line 1 ended.
+                    <tspan key={lineText} x={0} dy={lineIndex === 0 ? 0 : '1.15em'}>
+                      {lineText}
+                    </tspan>
+                  ))}
             </text>
           </g>
         );

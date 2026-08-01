@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { area, line } from 'd3-shape';
 import { utcFormat } from 'd3-time-format';
-import { scaleBand, scaleLinear, safeExtent } from './scales';
-import { useChartDimensions } from './useChartDimensions';
+import { scaleBand, scaleLinear } from './scales';
+import {
+  useChartDimensions,
+  CHART_PLOT_HEIGHT,
+  WRAPPED_AXIS_BOTTOM_MARGIN,
+} from './useChartDimensions';
 import { ChartSvg } from './ChartSvg';
 import { Axis } from './Axis';
 import { Tooltip } from './Tooltip';
@@ -21,9 +25,17 @@ import { buildRollingBaseline, type DailyMetricPoint } from '../../../api/_lib/t
 // DIFFERENT metrics (recovery %, day strain) in two units, so it carries two
 // independent y-axes. Here the line and the area are the SAME quantity (HRV in
 // ms) — the actual value and a smoothed mean OF that value — so they MUST share
-// one y-scale, or "above/below baseline" would be a lie. The scale is
-// zero-based ([0, max] niced) so the area reads as an honest magnitude fill
-// from 0 up to the baseline, exactly like 4.2's strain area.
+// one y-scale, or "above/below baseline" would be a lie.
+//
+// Y DOMAIN — FIXED 20-110 ms (confirmed 2026-08-01), replacing the previous
+// data-driven [0, max].nice(). A fixed domain means a given HRV always sits at
+// the same height, so the chart is comparable across range toggles and across
+// weeks; the old zero-based domain rescaled itself and squashed the series into
+// the top band. CONSEQUENCE, flagged: the scale is deliberately NOT clamped, so
+// a day outside 20-110 draws outside the plotted band rather than being
+// silently pinned to the edge — a visible overflow is more honest than a
+// fabricated boundary value, and the data table carries the real number either
+// way.
 //
 // BASELINE — computed CLIENT-SIDE from the same `data` prop via the pure,
 // already-tested buildRollingBaseline (api/_lib/transforms). windowDays = 7 (a
@@ -43,12 +55,14 @@ import { buildRollingBaseline, type DailyMetricPoint } from '../../../api/_lib/t
 // interpolated across. The x (band) domain still holds every day, so the gap
 // occupies real axis space.
 //
-// CONTRAST (design.md §5.2 rule 4, §1 table) — driven by which token fails 3:1,
-// not by line-vs-area. HRV actual is --color-chart-7 (dark magenta, 4.5:1 on
-// the white card): it PASSES, so the line needs no casing — same reasoning
-// 4.2 used to leave the chart-5 strain edge bare. The baseline is
-// --color-chart-4 (pale mustard, 1.60:1): it FAILS, so its area edge wears the
-// same muted hairline 4.2 put under its chart-6 recovery line.
+// STROKES — all removed 2026-08-01 at the user's direction. Neither the actual
+// line nor its focusable points carry the --color-muted casing/outline they
+// used to, and the baseline's muted under-stroke is gone too. The hairlines
+// existed to push the old pale-mustard baseline past §5.2 rule 4's 3:1 non-text
+// threshold; with the tokens repointed (chart-7 → warm coral #FFA1A0, chart-4 →
+// pale blue-grey #D9E3F0) the two series are separated by SHAPE — a line above
+// a filled area — and every value is in the tooltip, the point's aria-label and
+// the data table as real text, so hue is nowhere the sole encoding.
 
 export interface HrvBaselineComboChartProps {
   /** One point per calendar day, ascending (buildDailySeries output). The baseline and data table both derive from this same prop. */
@@ -67,15 +81,22 @@ const BASELINE_COLOR = 'var(--color-chart-4)';
 // separate, shorter "recent normal", not the same constant.
 const HRV_BASELINE_WINDOW_DAYS = 7;
 
-// Fixed plot height — the 128px the placeholder/bodyHeight occupied. This tile
-// is a compact full-width bento band, so (unlike 4.2's aspect-ratio row) the
-// height is PINNED and only the width is responsive (the Sparkline precedent).
-const PLOT_HEIGHT = 128;
+// Fixed plot height, now the SHARED CHART_PLOT_HEIGHT (320px) rather than this
+// chart's old 128px: sleep stages, recovery-vs-strain, HRV and RHR are all
+// meant to read as the same size (confirmed 2026-08-01). Only the width is
+// responsive (the Sparkline precedent).
+const PLOT_HEIGHT = CHART_PLOT_HEIGHT;
 
-// Compact axis gutters for the short tile: left fits 2–3 digit ms labels, bottom
-// fits one row of date labels; top/right keep the 2px strokes and r=3.5 points
-// off the viewBox edges.
-const MARGIN = { top: 8, right: 10, bottom: 24, left: 36 };
+// Axis gutters: left fits 2–3 digit ms labels; the bottom uses the shared
+// deeper gutter because x labels may wrap to two lines; top/right keep the 2px
+// strokes and r=3.5 points off the viewBox edges.
+const MARGIN = { top: 8, right: 10, bottom: WRAPPED_AXIS_BOTTOM_MARGIN, left: 36 };
+
+/**
+ * Fixed y-axis extent in milliseconds (confirmed 2026-08-01). See the
+ * Y DOMAIN note in the header for why it is fixed and why it is not clamped.
+ */
+const HRV_Y_DOMAIN: [number, number] = [20, 110];
 
 const shortDay = utcFormat('%b %-d');
 const longDay = utcFormat('%B %-d, %Y');
@@ -142,12 +163,12 @@ export function HrvBaselineComboChart({ data, title, tableCaption }: HrvBaseline
     [days, dims.boundedWidth],
   );
 
-  // ONE shared y-scale, zero-based: the baseline is a mean OF the HRV values, so
-  // max(HRV) bounds both series; a zero floor makes the area an honest fill.
-  const hrvMax = useMemo(() => safeExtent(points, (p) => p.hrv)[1], [points]);
+  // ONE shared y-scale for both series — the baseline is a mean OF the HRV
+  // values, so plotting them on different scales would make "above/below
+  // baseline" meaningless. Fixed extent, not derived from the data.
   const yScale = useMemo(
-    () => scaleLinear().domain([0, hrvMax]).range([boundedHeight, 0]).nice(),
-    [hrvMax, boundedHeight],
+    () => scaleLinear().domain(HRV_Y_DOMAIN).range([boundedHeight, 0]),
+    [boundedHeight],
   );
 
   const xCenter = useMemo(() => {
@@ -248,20 +269,22 @@ export function HrvBaselineComboChart({ data, title, tableCaption }: HrvBaseline
                 length={dims.boundedWidth}
                 tickValues={tickValues}
                 format={(value) => formatDay(String(value), shortDay)}
+                // Let a date label wrap rather than run into its neighbour:
+                // the budget is the horizontal share each tick actually owns.
+                maxLabelWidth={
+                  tickValues.length > 0 ? dims.boundedWidth / tickValues.length : undefined
+                }
               />
             </g>
             {/* Paths are aria-hidden: the SVG's title/desc names the chart and
                 the data table (rule 2) carries every value; the focusable HRV
                 points below are the keyboard/AT entry into the marks. */}
             <g aria-hidden="true" style={fadeStyle}>
-              <path d={baselineAreaPath} fill={BASELINE_COLOR} fillOpacity={0.3} stroke="none" />
-              {/* Muted casing under the baseline edge: pale mustard
-                  (--color-chart-4) fails 3:1 against the white card (rule 4),
-                  so it wears the same hairline the legend swatches and 4.2's
-                  recovery line do. */}
-              <path d={baselineEdgePath} fill="none" stroke="var(--color-muted)" strokeWidth={3} />
+              {/* Baseline area at 50% opacity (confirmed 2026-08-01, was 30%),
+                  with its own edge on top in the same hue. No muted casing on
+                  either — see the STROKES note in the header. */}
+              <path d={baselineAreaPath} fill={BASELINE_COLOR} fillOpacity={0.5} stroke="none" />
               <path d={baselineEdgePath} fill="none" stroke={BASELINE_COLOR} strokeWidth={2} />
-              {/* HRV actual line: --color-chart-7 passes 4.5:1, so no casing. */}
               <path d={hrvLinePath} fill="none" stroke={HRV_COLOR} strokeWidth={2} />
             </g>
             {/* Focusable points on the HRV line (rule 3) — one Tab stop per
@@ -286,8 +309,6 @@ export function HrvBaselineComboChart({ data, title, tableCaption }: HrvBaseline
                   cy={cy}
                   r={3.5}
                   fill={HRV_COLOR}
-                  stroke="var(--color-muted)"
-                  strokeWidth={1}
                   style={fadeStyle}
                   tabIndex={0}
                   role="img"

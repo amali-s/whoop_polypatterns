@@ -106,6 +106,19 @@ export interface JournalFormProps {
   submitting?: boolean;
   /** Caller-owned save failure, rendered as the shell's `ErrorState`. */
   submitError?: string | null;
+  /**
+   * Optional dismiss action (2026-08-01), rendered as a secondary "Cancel"
+   * button BESIDE Save in the existing actions row. Added for the tearsheet,
+   * where Save and Cancel are the two ways out and separating them — Save in
+   * the form, Cancel in a tearsheet footer — would read as two unrelated
+   * controls.
+   *
+   * ADDITIVE ONLY: omit it and this component behaves exactly as it did
+   * before, so the 5.2 `day`/`initialAnswers`/`onSubmit` contract is extended,
+   * not forked. Discarding in-progress input is the CALLER's job (remount this
+   * form to reset it) — the form has no idea what "cancel" should mean.
+   */
+  onCancel?: () => void;
 }
 
 // ── Option lists ────────────────────────────────────────────────────────────
@@ -395,6 +408,7 @@ export function JournalForm({
   onSubmit,
   submitting = false,
   submitError = null,
+  onCancel,
 }: JournalFormProps) {
   const [form, setForm] = useState<FormState>(() => toFormState(initialAnswers));
   const [errors, setErrors] = useState<{ caffeine: string | null; alcohol: string | null }>({
@@ -634,6 +648,20 @@ export function JournalForm({
         <Button type="submit" size="sm" disabled={submitting}>
           {submitting ? 'Saving…' : 'Save journal'}
         </Button>
+        {/* type="button" is load-bearing: the default inside a <form> is
+            "submit", which would SAVE the entry this button exists to
+            discard. Disabled mid-save so a cancel can't race the write. */}
+        {onCancel && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={onCancel}
+            disabled={submitting}
+          >
+            Cancel
+          </Button>
+        )}
         {/* Always in the DOM so the live region is present before it updates.
             'Saving…' is left to the button label — announcing both would say
             the same thing twice. */}

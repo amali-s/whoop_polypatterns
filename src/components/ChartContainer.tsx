@@ -18,9 +18,15 @@ export interface ChartContainerProps {
    */
   status?: ChartStatus;
   /**
-   * Fixed body height in px — owns the per-tile placeholder sizing (23/64/128)
+   * Fixed body height in px — owned the per-tile placeholder sizing (23/64/128)
    * that was hardcoded in App.css. Omit it and the body sizes to content;
    * Phase 4's responsive D3 charts drop the prop rather than fight it.
+   *
+   * NO CONSUMERS as of 2026-08-01: the last two (the HRV and RHR tiles, still
+   * pinning their placeholders' 128px) were removed when those charts moved to
+   * the shared 320px CHART_PLOT_HEIGHT — a 320px SVG inside a 128px fixed body
+   * spilled out over the tiles below it. Kept as API because it is the only
+   * way a future tile can reserve height before its chart measures itself.
    */
   bodyHeight?: number;
   /** Legend row rendered under the chart body. */
