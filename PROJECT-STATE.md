@@ -1,5 +1,139 @@
 # Project state
 
+## Roadmap status (Task 5.3 — journal storage) — ✅ COMPLETE (mock-verified in the browser; NOT yet live-verified against prod) (2026-07-31)
+
+**What's done**
+
+- **`api/journal.ts` (new)** — the read/write path for the daily
+  questionnaire, `GET /api/journal?day=YYYY-MM-DD` and
+  `POST /api/journal { day, answers }`, modelled on `api/sleep-stages.ts`
+  (same `parseCookies`/`json` helpers, same auth check, same
+  `DatabaseUnavailableError` / `isDbUnavailableStatus` → `503 { waking: true }`
+  - `Retry-After` classification, same "log the detail, return a generic body"
+    rule). **No migration was written and none is needed** — 0004 has been live
+    since 2026-07-30, so this is the first code to write the table that already
+    exists.
+- **Identity is server-side only.** The member comes from `decodeSession()` on
+  the `whoop_session` cookie; the `user_id` written to (and filtered on) is
+  that value, never a field from the body or query string. The service-role
+  client bypasses RLS, so this filter is the ONLY thing separating two
+  members' rows — asserted directly in the tests, with a POST body that tries
+  to write `user_id: 'member-999-attacker'` and gets the session's id stored
+  instead.
+- **UPSERT, not append** — `.upsert(row, { onConflict: 'user_id,day' })`
+  against 0004's `unique (user_id, day)`, because Phase 5 is an "edit today"
+  workflow. `updated_at` is stamped by the write path (0001's convention: the
+  table has no trigger); `created_at` is left out of the payload so a re-save
+  doesn't rewrite it.
+- **`entry: null` is a 200, not a 404.** "Nothing logged today yet" is the
+  normal state of this endpoint on any morning; a 404 would make the tile
+  render an error for the most common case. The read uses `.limit(1)` and
+  takes `[0]` rather than `.single()`/`.maybeSingle()`, so "no row" stays an
+  ordinary empty result with no PostgREST error semantics to reinterpret.
+- **Null discipline enforced on BOTH sides of the wire.** Validation is
+  hand-written per field rather than a coerce, and returns an `INVALID`
+  sentinel deliberately distinct from `null` — so "the client sent garbage"
+  (400) can never collapse into "the user didn't answer" (a NULL column). An
+  absent or null field is written as an explicit NULL, no field is ever
+  defaulted, and a wrongly-TYPED field is a 400 rather than something coerced
+  into a shape the DB would accept (`hydrated: 'yes'` → 400, not `true`). The
+  response is built key by key so a NULL column comes back as a present key
+  with a `null` value instead of disappearing.
+- **The API does not trust the form.** Bounds and vocabularies are re-checked
+  server-side against the same `journal-types.ts` constants the form uses
+  (`CAFFEINE_SERVINGS_MIN/MAX`, `ALCOHOL_DRINKS_MIN/MAX`, `CRAMP_LEVELS`,
+  `DISCHARGE_LEVELS`, the `PeriodAnswer` union) — the endpoint is reachable
+  without the form. Failures return a generic `400 { error: 'Invalid
+request.' }` that doesn't enumerate the rules; `day` must be a real calendar
+  date (the regex alone would accept `2026-13-45`), and the body has a 64 KB
+  ceiling since `notes`/`extra` are free-form. Unknown keys in `answers` are
+  ignored rather than forwarded, because the row is assembled field by field.
+- **`scripts/test-journal.mjs` (new, `npm run test:journal`)** — the real
+  handler against a mocked PostgREST (`global.fetch`), the test-session.mjs
+  pattern: no creds, no network, no re-implementation. 60 checks across auth
+  (401 both verbs, DB never touched), `entry: null`, a stored row with an
+  explicitly-NULL column and an answered `0`/`false`, out-of-bounds and
+  wrong-typed payloads (400 **and no upsert attempted**), the upsert request
+  itself (asserted against the real `on_conflict=user_id,day` +
+  `Prefer: resolution=merge-duplicates` supabase-js emits, and the written
+  `user_id`), malformed `day` on both verbs, 540/503/500 classification, the
+  Vercel pre-parsed-`req.body` shape, and 405.
+- **`src/App.tsx`'s `JournalTile` wired** — mount-time `GET` with a
+  cancellation flag (the `useSleepStages`/`session-check` convention;
+  same-origin fetch, so the cookie rides along with no `credentials` option,
+  matching every other call), `ChartContainer status="loading"` in flight and
+  `"empty"` on 401 (the 4.9 rule), `"error"` on anything else. `handleSave` is
+  async, awaits the real upsert, and drives the `submitting`/`submitError`
+  props `JournalForm` already accepted but 5.2 left unset; it rethrows on
+  failure so the form withholds its "Saved." status. **`JournalForm.tsx` was
+  not touched** — the 5.2 seam held exactly as designed.
+- **The "Not stored yet — entries last until you reload" subtitle is gone**,
+  along with the `.journal-session-note` rule in `App.css` that styled it (its
+  own comment said to delete it when 5.3 landed).
+
+**One deviation worth knowing about, found in the browser**
+
+- The obvious `setAnswers(entry)` after every successful write is WRONG here,
+  and the bug is invisible in tests: handing `JournalForm` a new
+  `initialAnswers` reference makes it re-seed, and re-seeding calls
+  `setSaved(false)` — so the tile's own state update was erasing the only
+  confirmation a successful save produces. Observed live (button returned to
+  "Save journal" with an empty status region). Fixed in the CALLER, not the
+  form: the tile adopts the server's echo only when it actually differs from
+  what was submitted (`journalAnswersEqual`, field by field with `extra`
+  serialized). When the server stored exactly what we sent — the normal case —
+  the form already displays what's stored, so leaving it alone is both correct
+  and what keeps "Saved." on screen.
+
+**Verified (mock preview, 2026-07-31)**
+
+- Gates: `npm run lint`, `npx tsc -b`, `npm run typecheck:api`,
+  `npm run format:check`, `npm run test:journal` all pass;
+  `npm run test:transforms` and `npm run test:cycle` re-run clean (no Phase 4
+  regression).
+- In-browser via the temporary `vite.config.ts` middleware mock (the 4.1
+  trick; **reverted afterwards — `git diff vite.config.ts` is empty**):
+  a loaded row seeds the form with null discipline intact (`hydrated: false` →
+  "No", `discharge: null` → "Not answered", `caffeine_servings: 0` → "0",
+  `alcohol_drinks: null` → blank); an edit + save POSTs
+  `{"day":"2026-07-31","answers":{…,"traveled":true,"alcohol_drinks":2,"discharge":null,…}}`
+  — unanswered fields as explicit nulls, `0` still `0`; a reload reads the
+  saved values back; mid-flight the button is disabled and reads "Saving…",
+  after it the status region says "Saved."; a forced 500 renders the
+  `role="alert"` message, no "Saved.", and leaves the user's edits in place;
+  `entry: null` opens a blank form (counts blank, not `0`); a 401 renders
+  "Connect your WHOOP account to log your day." with no form. No console
+  errors.
+
+**Still open / flagged**
+
+- **NOT live-verified.** No real logged-in browser has hit
+  `/api/journal` on production, so no row has ever been written to the live
+  `daily_questionnaire` — the same residual every Phase 4/5 entry carries.
+  The mock proves the wiring and the contract; it does not prove the 0004
+  CHECK constraints accept what this endpoint sends. Confirm after deploy by
+  saving a journal entry and reloading.
+- **The once-only "typical cycle length" prompt is still unbuilt** (ROADMAP
+  5.1 constraint 2) — deliberately out of 5.3's scope, as the ROADMAP note
+  says. It writes `user_settings` and must first READ
+  `typical_cycle_length_asked_at`, which needs an endpoint that doesn't exist
+  yet. TODOs remain in `JournalTile` and at `JournalForm`'s `period` control.
+- **The period meter still renders `no-data`.** 5.3 stores the tri-state
+  `period` field but nothing reads the history back yet — wiring
+  `PeriodMeterTile`'s `logs` (and passing the cycle length UNRESOLVED) is the
+  next step, and is what finally closes 4.10's residual.
+- **5.2's desktop bento layout question is still open** — the journal tile is
+  a 219×1651px column at ≥640px. Untouched here; still your call (cap +
+  scroll, own full-width row, or out of the grid).
+
+**What needs human action**
+
+- **Nothing to apply** — 0004 is already live (2026-07-30), and 5.3 adds no
+  env var and no dependency.
+- **Commit + push** (same as every prior phase): pushing `main` auto-deploys
+  Vercel production, which is what makes `/api/journal` real. Then do the live
+  check above.
+
 ## Roadmap status (Task 4.10 — period meter, dot-matrix cycle-day bar) — ✅ COMPONENT + LOGIC COMPLETE (no-data state browser-verified; NOT live-verifiable — no data source exists) (2026-07-18)
 
 **What's done**

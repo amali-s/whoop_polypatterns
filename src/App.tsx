@@ -844,44 +844,159 @@ function PeriodMeterTile({
  * submitting re-seeds `initialAnswers`, so the form re-opens showing what was
  * last entered — but nothing is written anywhere yet.
  */
-function JournalTile() {
-  const [answers, setAnswers] = useState<JournalAnswers | undefined>(undefined);
+/**
+ * Do two answer sets carry the same values? Compared field by field (with the
+ * untyped `extra` serialized) rather than by reference, because a save
+ * round-trip always rebuilds the object — what the tile needs to know is
+ * whether the SERVER changed anything, not whether the identity changed.
+ */
+function journalAnswersEqual(a: JournalAnswers, b: JournalAnswers): boolean {
+  return (
+    a.hydrated === b.hydrated &&
+    a.cramps === b.cramps &&
+    a.period === b.period &&
+    a.discharge === b.discharge &&
+    a.afternoon_snack === b.afternoon_snack &&
+    a.traveled === b.traveled &&
+    a.caffeine_servings === b.caffeine_servings &&
+    a.alcohol_drinks === b.alcohol_drinks &&
+    a.notes === b.notes &&
+    JSON.stringify(a.extra) === JSON.stringify(b.extra)
+  );
+}
 
-  // TODO(5.3) — STORAGE SEAM. Everything the real wiring replaces is in this
-  // component; JournalForm itself needs no change. Specifically:
-  //   1. LOAD: on mount, GET the entry for `day` (one row, `unique (user_id,
-  //      day)`) and feed it to `initialAnswers`. Hold it in state so the
-  //      reference stays stable — the form re-seeds when that reference
-  //      changes, which is exactly how an async load reaches it, but an object
-  //      rebuilt inline every render would wipe in-progress typing. While the
-  //      request is in flight pass ChartContainer `status="loading"`; on 401 /
-  //      no session pass `status="empty"` (the 4.9 rule).
-  //   2. SAVE: make handleSave await a real upsert instead of setState, and
-  //      pass the two props JournalForm already accepts but this stub leaves
-  //      unset — `submitting` (in-flight, disables the button) and
-  //      `submitError` (rendered as the shell's ErrorState). Keep the local
-  //      setAnswers call after a successful write so the form stays in sync.
-  //   3. Drop the `subtitle` warning below once answers actually survive a
-  //      reload — it exists to stop this stub from lying to the user.
-  //   4. Phase 5.3+ also owns the once-only "typical cycle length" prompt
-  //      (ROADMAP 5.1 constraint 2) — see the TODO at the `period` control in
-  //      JournalForm.tsx, and wire its answer into PeriodMeterTile's
-  //      `typicalCycleLength` prop UNRESOLVED (cycleState owns the precedence).
-  function handleSave(next: JournalAnswers) {
-    setAnswers(next);
+/** User-facing reason a save failed, by response status. Deliberately vague
+ *  about the server side (the API's own bodies are generic too) and specific
+ *  about what the user can do next. */
+function saveErrorMessage(status: number): string {
+  if (status === 401) {
+    return 'Your session expired — reconnect WHOOP, then save again.';
+  }
+  if (status === 503) {
+    return 'The database is waking up. Try saving again in a moment.';
+  }
+  return "Couldn't save your journal. Try again.";
+}
+
+/**
+ * Daily-journal tile (Phase 5.3 — storage). Owns the I/O that `JournalForm`
+ * deliberately doesn't: it loads today's row on mount and upserts it on save,
+ * both through `/api/journal`, which keys on `(user_id, day)` with the member
+ * taken from the session cookie server-side.
+ *
+ * The loaded answers live in STATE so their reference stays stable across
+ * renders — the form re-seeds itself whenever that reference (or `day`)
+ * changes, so an object rebuilt inline here would wipe in-progress typing on
+ * every keystroke elsewhere in the tree.
+ *
+ * TODO(5.3+) — the once-only "typical cycle length" prompt (ROADMAP 5.1
+ * constraint 2) is still unbuilt and out of scope here: it writes
+ * `user_settings` and must first READ `typical_cycle_length_asked_at`, so it
+ * needs an endpoint that doesn't exist yet. See the TODO at the `period`
+ * control in JournalForm.tsx; its answer goes into PeriodMeterTile's
+ * `typicalCycleLength` prop UNRESOLVED (cycleState owns the precedence).
+ */
+function JournalTile() {
+  const day = localTodayISO();
+  const [answers, setAnswers] = useState<JournalAnswers | undefined>(undefined);
+  // 'empty' is the 4.9 no-session convention every other tile uses for a 401;
+  // 'error' covers a failed/unparseable load (including the 503 waking case —
+  // a reload once the database is back is enough for a tile).
+  const [status, setStatus] = useState<ChartStatus>('loading');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Mount-time load, guarded by a cancellation flag like useSleepStages /
+  // session-check: no setState after unmount, and no throw out of the effect.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/journal?day=${day}`);
+        if (res.status === 401) {
+          if (!cancelled) {
+            setStatus('empty');
+          }
+          return;
+        }
+        if (!res.ok) {
+          if (!cancelled) {
+            setStatus('error');
+          }
+          return;
+        }
+        const body = (await res.json()) as { entry?: JournalAnswers | null };
+        if (!cancelled) {
+          // `entry: null` is the normal "nothing logged today yet" answer, not
+          // a failure — the form opens blank, every field unanswered.
+          setAnswers(body.entry ?? undefined);
+          setStatus('ready');
+        }
+      } catch {
+        // Network failure or an unparseable body (e.g. plain `vite dev`, which
+        // serves no /api at all).
+        if (!cancelled) {
+          setStatus('error');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [day]);
+
+  async function handleSave(next: JournalAnswers) {
+    setSubmitting(true);
+    setSubmitError(null);
+    // Whichever failure fires below sets this before rethrowing; the default
+    // covers a fetch that never produced a response at all.
+    let message = "Couldn't save your journal. Check your connection and try again.";
+    try {
+      const res = await fetch('/api/journal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ day, answers: next }),
+      });
+      if (!res.ok) {
+        message = saveErrorMessage(res.status);
+        throw new Error(`Journal save failed with status ${res.status}.`);
+      }
+      const body = (await res.json()) as { entry?: JournalAnswers | null };
+      // The row as SAVED (falling back to the payload if the body is
+      // unexpected) — but adopt it only when it DIFFERS from what we sent.
+      // Handing JournalForm a new `initialAnswers` reference makes it re-seed,
+      // and re-seeding clears its "Saved." status; browser-verified. When the
+      // server echoes exactly what we submitted — the normal case — the form
+      // already shows what is stored, so touching it would erase the only
+      // confirmation a successful write produces for no gain.
+      const stored = body.entry ?? next;
+      setAnswers((prev) => (journalAnswersEqual(stored, next) ? prev : stored));
+    } catch (err) {
+      setSubmitError(message);
+      // Rethrow: JournalForm catches this and withholds its "Saved." status,
+      // so a failed write never reads as a successful one.
+      throw err;
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
     <ChartContainer
       className="bento-journal"
       title="Daily journal"
-      subtitle={
-        <span className="journal-session-note">
-          Not stored yet — entries last until you reload (Phase 5.3)
-        </span>
-      }
+      status={status}
+      loadingLabel="Loading today’s journal…"
+      emptyMessage="Connect your WHOOP account to log your day."
+      errorMessage="Couldn’t load today’s journal. Refresh to try again."
     >
-      <JournalForm day={localTodayISO()} initialAnswers={answers} onSubmit={handleSave} />
+      <JournalForm
+        day={day}
+        initialAnswers={answers}
+        onSubmit={handleSave}
+        submitting={submitting}
+        submitError={submitError}
+      />
     </ChartContainer>
   );
 }
