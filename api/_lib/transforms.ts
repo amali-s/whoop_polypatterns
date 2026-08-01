@@ -5,6 +5,12 @@
 // supabase/migrations/0003_typed_columns.sql, Phase 2.4) into the per-day / per-night
 // series the charts render. It is the READ counterpart to sync.ts's WRITE path.
 //
+// PHASE 5.5 — a FIFTH input table that is NOT a WHOOP table. buildDailySeries also
+// takes `public.daily_questionnaire` rows (the Phase 5.1 journal) and merges them onto
+// the same `day` key, so one series can carry a self-reported answer alongside the
+// objective metrics for that day. See JournalMetricRow for why it has no score_state
+// gate and what NULL means there.
+//
 // PURITY / IMPORT CONTRACT (the whole point of this file):
 //   - NO side effects: no network, no DB, no I/O, no logging, no mutation of inputs.
 //   - NO imports from sync.ts, whoop.ts, or supabase.ts (nor any other module). Data
@@ -102,6 +108,32 @@ export interface WorkoutMetricRow {
   distance_meter: number | null;
 }
 
+/**
+ * A `public.daily_questionnaire` row (Phase 5.1's 0004 schema), narrowed to the
+ * column(s) the daily series actually surfaces. The ONE input here that does not come
+ * from WHOOP.
+ *
+ * NO `score_state`, and deliberately no gate standing in for one: a journal answer is
+ * never "pending" or "unscorable" — it was either given or it wasn't. That makes the
+ * null rule STRICTER than the WHOOP tables', not looser: `hydrated: null` (or an absent
+ * row) means NOT ANSWERED, while `false` is an answered "no". The two must never
+ * collapse into each other — a fabricated `false` would read as "I logged that I wasn't
+ * hydrated" and would drag a correlation toward a claim the user never made. This is
+ * the exact coercion `hydrated boolean` invites and the reason 5.2 refused to render it
+ * as a checkbox.
+ *
+ * Selected narrowly on purpose (api/daily-series.ts asks the DB for exactly these
+ * columns): the journal holds health answers well beyond what any chart needs, and a
+ * `select *` would ship cramps/discharge/period/notes into every chart payload for no
+ * reason. Widen it one column at a time, when a chart actually reads that column.
+ */
+export interface JournalMetricRow {
+  /** Local calendar day, ISO 'YYYY-MM-DD' — the same key the WHOOP tables use. */
+  day: string;
+  /** Self-assessed "felt hydrated". `false` = answered no; `null` = NOT ANSWERED. */
+  hydrated: boolean | null;
+}
+
 // ── Output shapes ──────────────────────────────────────────────────────────────────
 /** Inclusive calendar-day window [start, end], both YYYY-MM-DD. */
 export interface DateRange {
@@ -140,6 +172,15 @@ export interface DailyMetricPoint {
   totalSleepMilli: number | null;
   workoutStrainSum: number | null;
   workoutCount: number | null;
+  /**
+   * SELF-REPORTED (Phase 5.5) — the daily journal's "Hydrated" answer
+   * (`daily_questionnaire.hydrated`), NOT a WHOOP metric. `false` is an answered "no";
+   * `null` means the question was never answered (no journal row for the day, or a row
+   * that left this field blank). The distinction is the whole point: see
+   * JournalMetricRow. Long all-null runs are EXPECTED on days before the journal
+   * existed or on any day the user didn't log — not a data bug.
+   */
+  hydrated: boolean | null;
 }
 
 /** One point per night for the stacked-stage bar (chart 4.1). Minutes, not millis. */
@@ -291,12 +332,20 @@ function aggregateWorkouts(rows: WorkoutMetricRow[]): {
  * even days with no data (they appear with every field null so a chart can render a
  * gap rather than skip the day). Multiple workouts on a day are aggregated into
  * workoutStrainSum / workoutCount; naps are excluded from the sleep-derived fields.
+ *
+ * `journal` (Phase 5.5) is merged EXACTLY like the other four collections — day-keyed,
+ * absence = null — with one difference stated in JournalMetricRow: no score_state gate,
+ * because a self-reported answer has no scoring state to gate on. It is a REQUIRED
+ * parameter rather than an optional one so a caller cannot silently drop the join and
+ * ship a series whose journal fields are null for reasons that have nothing to do with
+ * what the user logged; a caller with no journal rows passes `[]` and says so.
  */
 export function buildDailySeries(
   cycles: CycleMetricRow[],
   recovery: RecoveryMetricRow[],
   sleep: SleepMetricRow[],
   workouts: WorkoutMetricRow[],
+  journal: JournalMetricRow[],
   range: DateRange,
 ): DailyMetricPoint[] {
   const cycleByDay = indexByDay(cycles);
@@ -304,12 +353,16 @@ export function buildDailySeries(
   // Exclude naps before indexing so a nap can't clobber the night's main sleep.
   const sleepByDay = indexByDay(sleep.filter((s) => s.nap !== true));
   const workoutsByDay = groupByDay(workouts);
+  // One row per (user, day) upstream — `unique (user_id, day)` in 0001 — so the same
+  // last-wins indexing the one-per-day WHOOP tables use is correct here too.
+  const journalByDay = indexByDay(journal);
 
   return eachDayInclusive(range.start, range.end).map((day) => {
     const cycle = cycleByDay.get(day);
     const rec = recoveryByDay.get(day);
     const slp = sleepByDay.get(day);
     const dayWorkouts = workoutsByDay.get(day) ?? [];
+    const jrnl = journalByDay.get(day);
 
     return {
       day,
@@ -324,6 +377,11 @@ export function buildDailySeries(
         : null,
       totalSleepMilli: totalSleepMilliOf(slp),
       ...aggregateWorkouts(dayWorkouts),
+      // `??` normalizes "no row for this day" and an undefined column to null WITHOUT
+      // touching an answered `false` (`false ?? null` is `false`, where `||` would have
+      // swallowed it) — the one coercion that would turn "didn't answer" into "answered
+      // no". No scored() gate: see JournalMetricRow.
+      hydrated: jrnl?.hydrated ?? null,
     };
   });
 }

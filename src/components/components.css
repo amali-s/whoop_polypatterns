@@ -125,6 +125,12 @@
 
 .ui-chart-legend {
   display: flex;
+  /* Wrap added 5.5: the HRV/RHR legends have two short entries and never
+   * needed it, but the alcohol/recovery matrix carries six (three zones, a
+   * no-data swatch, and the two non-hue encodings named in text) and pushed
+   * the page to 413px of content at a 375px viewport without it. No effect on
+   * the existing two-entry legends. */
+  flex-wrap: wrap;
   gap: var(--space-4);
   font-size: var(--text-xs);
   color: var(--color-muted);

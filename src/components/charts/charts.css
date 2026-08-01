@@ -244,6 +244,37 @@
   color: var(--color-muted);
 }
 
+/* Phase 5.5 — questionnaire-vs-recovery dot matrix (alcohol vs. recovery).
+ * The dots themselves need no rules of their own: they reuse .chart-mark for
+ * the focus ring, and their fill/stroke/radius are data-driven (see the
+ * component header for why each is set inline). */
+
+/* Decorative row separators between the zone bands — the same hairline weight
+ * and token the axes use, so the matrix reads as rows without competing with
+ * the dots. */
+.correlation-rowline {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+/* The headline comparison, as a real text sentence (§5.2 rule 4 — the
+ * correlation is never something you have to infer from hue). Muted body copy,
+ * never a chart hue and never --color-positive/-negative: "recovery was lower
+ * on drinking days" is a description, not a verdict on the user's behaviour. */
+.correlation-summary {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+
+/* How much of the window is actually answered/scored — the same --text-xs
+ * muted treatment as .sparkline-caption / .stat-delta-caption. */
+.correlation-caption {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
 /* §5.2 rule 5, CSS side of the double gate (JS side: chartTransitionDuration
  * renders the final dashoffset immediately). */
 @media (prefers-reduced-motion: reduce) {
@@ -257,6 +288,10 @@
 
   .sparkline-line,
   .sparkline-latest-dot {
+    transition: none !important;
+  }
+
+  .correlation-dots {
     transition: none !important;
   }
 }

@@ -19,6 +19,12 @@
 //   * millis → minutes rounding (round half-up)
 //   * a rolling-baseline window that starts    → null until minSamples is met,
 //     below minSamples                            then the trailing mean
+//   * (5.5) a journal row answering "not       → false, NEVER null
+//     hydrated"
+//   * (5.5) a journal row leaving it blank     → null (asked, not answered)
+//   * (5.5) no journal row for the day         → null
+//   * (5.5) a journal row on a day with NO     → the answer still lands; the
+//     WHOOP data at all                           journal join is independent
 //
 // All fixture numbers are SYNTHETIC — no real personal health data.
 //
@@ -92,6 +98,10 @@ const sleep = (day, score_state, { perf, awake, light, deep, rem, nap = false } 
   disturbance_count: null,
   need_from_sleep_debt_milli: null,
 });
+// A daily_questionnaire row (Phase 5.5). `hydrated` is passed EXPLICITLY at
+// every call site, including `null`, because the whole point of these cases is
+// that "answered false" and "left blank" are different fixtures.
+const journal = (day, hydrated) => ({ day, hydrated });
 const workout = (day, score_state, strain) => ({
   day,
   score_state,
@@ -152,10 +162,24 @@ const workouts = [
   workout('2026-06-04', 'SCORED', 3.5), // 06-04 sum = 8.5, count = 2
   workout('2026-06-05', 'PENDING_SCORE', null), // unscored → count 1, sum null
 ];
+// Journal rows (5.5). Deliberately NOT aligned with the WHOOP rows:
+//   06-01 answered TRUE (hydrated);
+//   06-02 answered FALSE — must stay false, never collapse to null (the `||`
+//         bug this whole case exists to catch);
+//   06-03 has a journal row but NO WHOOP row anywhere — the day is a total WHOOP
+//         gap, and the answer must still land (the join doesn't depend on WHOOP);
+//   06-04 has a row that left hydrated BLANK — asked but not answered → null;
+//   06-05 has no journal row at all → null.
+const journals = [
+  journal('2026-06-01', true),
+  journal('2026-06-02', false),
+  journal('2026-06-03', true),
+  journal('2026-06-04', null),
+];
 
 // ── Case 1: buildDailySeries ─────────────────────────────────────────────────
 console.log('\nCase 1: buildDailySeries — one point per day incl. gaps, null not 0');
-const daily = buildDailySeries(cycles, recoveries, sleeps, workouts, {
+const daily = buildDailySeries(cycles, recoveries, sleeps, workouts, journals, {
   start: '2026-06-01',
   end: '2026-06-05',
 });
@@ -207,10 +231,12 @@ check(
   d2.workoutStrainSum === null && d2.workoutCount === null,
 );
 
-// 06-03 — MISSING from every collection; the day must still appear, all null.
+// 06-03 — MISSING from every WHOOP collection; the day must still appear with
+// every WHOOP field null. Its journal answer is asserted in Case 1b below —
+// a total WHOOP gap must not suppress the self-reported side of the join.
 const d3 = byDay['2026-06-03'];
 check(
-  '06-03 present with ALL fields null (a gap, not skipped)',
+  '06-03 present with ALL WHOOP fields null (a gap, not skipped)',
   d3 !== undefined &&
     d3.strain === null &&
     d3.kilojoule === null &&
@@ -250,6 +276,64 @@ check(
 );
 check('06-05 workoutStrainSum null (only workout unscored)', d5.workoutStrainSum === null);
 check('06-05 workoutCount 1 (unscored workout still counted)', d5.workoutCount === 1);
+
+// ── Case 1b: the journal join (Phase 5.5) ────────────────────────────────────
+// The whole point of this case is that `false` and `null` are DIFFERENT
+// answers. A `|| null`, a `!!row.hydrated`, or a `coalesce(hydrated, false)`
+// anywhere in the merge path fails here rather than silently inventing days the
+// user "logged as not hydrated". Strict `=== false` / `=== null` throughout —
+// a truthiness assertion would pass under exactly the bug being tested for.
+console.log('\nCase 1b: buildDailySeries — journal join, answered false ≠ unanswered null');
+check('06-01 hydrated true (answered yes)', d1.hydrated === true);
+check(
+  '06-02 hydrated false — an ANSWERED no, never collapsed to null',
+  d2.hydrated === false && d2.hydrated !== null,
+);
+check(
+  '06-03 hydrated true on a day with NO WHOOP row at all (join is independent)',
+  d3.hydrated === true,
+);
+check(
+  '06-04 hydrated null — journal row exists but the field was left blank',
+  d4.hydrated === null,
+);
+check('06-05 hydrated null — no journal row for the day', d5.hydrated === null);
+
+// An empty journal array is the pre-Phase-5 / never-logged case: every day gets
+// an explicit null, and NOTHING else about the series changes.
+const noJournal = buildDailySeries(cycles, recoveries, sleeps, workouts, [], {
+  start: '2026-06-01',
+  end: '2026-06-05',
+});
+check(
+  'no journal rows → every day hydrated null (never false)',
+  noJournal.length === 5 && noJournal.every((p) => p.hydrated === null),
+);
+/** A point with the 5.5 field stripped — for asserting the WHOOP side is untouched. */
+const whoopFieldsOnly = (point) => {
+  const copy = { ...point };
+  delete copy.hydrated;
+  return copy;
+};
+check(
+  'no journal rows → the WHOOP fields are byte-for-byte unchanged',
+  JSON.stringify(noJournal.map(whoopFieldsOnly)) === JSON.stringify(daily.map(whoopFieldsOnly)),
+);
+
+// A journal row OUTSIDE the requested window must not leak into it (the DB
+// already filters by day, but the merge must not reach for it either).
+const outOfWindow = buildDailySeries(
+  cycles,
+  recoveries,
+  sleeps,
+  workouts,
+  [journal('2026-05-30', false)],
+  { start: '2026-06-01', end: '2026-06-05' },
+);
+check(
+  'a journal row outside [start, end] appears nowhere in the series',
+  outOfWindow.every((p) => p.hydrated === null),
+);
 
 // ── Case 2: buildSleepStageBreakdown ─────────────────────────────────────────
 console.log('\nCase 2: buildSleepStageBreakdown — naps skipped, millis→minutes rounded');
@@ -310,6 +394,7 @@ const clean = [10, 12, 14, 16, 18].map((v, i) => ({
   totalSleepMilli: null,
   workoutStrainSum: null,
   workoutCount: null,
+  hydrated: null,
 }));
 const base = buildRollingBaseline(clean, (p) => p.strain, 3, { minSamples: 3 });
 check('06-10 mean null (1 sample < 3)', base[0].mean === null && base[0].sampleCount === 1);
@@ -344,6 +429,7 @@ const gapped = [10, null, 14, 16, null].map((v, i) => ({
   totalSleepMilli: null,
   workoutStrainSum: null,
   workoutCount: null,
+  hydrated: null,
 }));
 const gapBase = buildRollingBaseline(gapped, (p) => p.hrvRmssdMilli, 3, { minSamples: 2 });
 check('d1 null (1 sample < 2)', gapBase[0].mean === null && gapBase[0].sampleCount === 1);

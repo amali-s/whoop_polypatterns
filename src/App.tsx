@@ -11,6 +11,7 @@ import { LoadingState, ErrorState } from './components/states';
 import {
   DotMatrix,
   HrvBaselineComboChart,
+  HydrationRecoveryDotMatrix,
   ProgressRing,
   RecoveryStrainComboChart,
   RhrBaselineComboChart,
@@ -20,6 +21,8 @@ import {
   type StackedBarSeriesKey,
 } from './components/charts';
 import { cycleState, type PeriodLog } from './lib/cycle';
+import { HYDRATION_COLORS, HYDRATION_LABELS, HYDRATION_STATES } from './lib/hydration';
+import { recoveryZone } from './lib/recovery';
 import { baselineDelta } from './lib/stats';
 import { useSleepStages } from './hooks/useSleepStages';
 import { useJournalReminder } from './hooks/useJournalReminder';
@@ -372,6 +375,106 @@ function RhrBaselineTile({
   );
 }
 
+// --- Phase 5.5 — hydration-vs-recovery correlation tile --------------------
+
+/**
+ * Full-width row below the bento grid (design.md §2's "Layout gap" decision:
+ * a Phase 4/5 chart with no bento slot gets its own row at the dashboard's
+ * 1200px column width — the SleepStagesTile / RecoveryStrainTile precedent).
+ *
+ * PLACEMENT, chosen deliberately over the alternative in the 5.5 brief: there
+ * is no free "bento-strain / chart-6" slot to fill. `bento-strain` is occupied
+ * by the real 4.9 strain ring, and design.md §4's chart-6 row is a MAPPING row
+ * in the chart table (the strain-matrix option it locked in 2026-07-09,
+ * explicitly "since Phase 5 does not exist yet"), not an empty grid area — the
+ * bento's `grid-template-areas` (§2, Figma-confirmed) has nine areas and all
+ * nine are filled. Adding a tenth would edit that locked layout, which is a
+ * design call, not this task's. A full-width row is also the honest shape for
+ * this chart: 30–90 day columns need the width, and the 5.2 journal tile
+ * already showed what a wide-content tile does to the 640px grid.
+ *
+ * Fed App's SHARED `useDailySeries(rangeDays)` — the same call that already
+ * feeds five other tiles. No new endpoint and no second fetch (4.3/4.15 rule);
+ * `hydrated` rides along on the points those tiles already receive.
+ *
+ * Status mapping matches RecoveryStrainTile EXACTLY: 401 → 'empty' (the 4.9
+ * rule), loading/error pass through, and a ready fetch where no day in the
+ * window carries EITHER a recovery score or a hydration answer → 'empty'.
+ * A window with recovery but no journal answers is NOT empty — that is the
+ * informative "nothing logged yet" state, and the chart says so in its own
+ * summary line rather than hiding behind a tile-level empty state.
+ */
+function HydrationRecoveryTile({
+  series,
+  rangeDays,
+}: {
+  series: DailySeriesState;
+  rangeDays: RangeDays;
+}) {
+  const points = series.status === 'ready' ? series.points : [];
+  // `!= null` and not a truthiness check: an answered `hydrated: false` is a
+  // real answer and must keep this tile out of its empty state.
+  const hasData = points.some((p) => p.recoveryScore != null || p.hydrated != null);
+  const status: ChartStatus =
+    series.status === 'unauthenticated' || (series.status === 'ready' && !hasData)
+      ? 'empty'
+      : series.status;
+  return (
+    <ChartContainer
+      title="Hydration vs. recovery"
+      subtitle={`One dot per day — dot height is your recovery zone, dot color is what you logged for hydration (last ${rangeDays} days)`}
+      status={status}
+      loadingLabel="Loading your hydration and recovery…"
+      emptyMessage={
+        series.status === 'unauthenticated'
+          ? 'Connect your WHOOP account to compare your journal against your recovery.'
+          : `No recovery or journal data in the last ${rangeDays} days — run a sync and log a day, then refresh.`
+      }
+      errorMessage="Couldn’t load hydration and recovery. Refresh to try again."
+      legend={
+        /* Three entries, one per hydration state — hue is the hydration channel
+           now, so the legend explains hue and nothing else. Recovery is NOT in
+           the legend on purpose: it is the vertical axis, already labelled in
+           real text on every row ("67–100%"), and a swatch for it would imply a
+           color it no longer has. Swatch colors come from HYDRATION_COLORS, the
+           same constant the dots are filled from, so the two cannot drift.
+           `.legend-swatch`'s muted hairline is what carries chart-1 and
+           --color-border past the 3:1 non-text threshold (§5.2 rule 4). */
+        <>
+          {/* Mapped from HYDRATION_STATES so the three entries stay in one
+              declared order and can never fall out of step with the dots. */}
+          {HYDRATION_STATES.map((state) => (
+            <span key={state} className="legend-item">
+              <span
+                className="legend-swatch"
+                aria-hidden="true"
+                style={{ background: HYDRATION_COLORS[state] }}
+              />
+              {HYDRATION_LABELS[state]}
+            </span>
+          ))}
+          {/* The non-hue channel, named in real text — a swatch can't show a
+              radius, and rule 4 forbids leaving the answer to hue alone. */}
+          <span className="legend-item">
+            Dot size repeats it: large = hydrated, small = dehydrated
+          </span>
+        </>
+      }
+    >
+      {/* tableCaption is kept to the same short length as every other chart's
+          on purpose: `.sr-only-table` is clipped but still LAID OUT, so a long
+          nowrap caption widens the whole page (measured: a 984px caption pushed
+          document.scrollWidth to 1020 at a 690px viewport). What "no data"
+          means in each column rides in the SVG <desc> instead. */}
+      <HydrationRecoveryDotMatrix
+        data={points}
+        title="Hydration vs. recovery"
+        tableCaption={`Hydration logged and WHOOP recovery per day, last ${rangeDays} days`}
+      />
+    </ChartContainer>
+  );
+}
+
 // --- Phase 4.11 — skin-temp sparkline tile ---------------------------------
 
 /**
@@ -639,26 +742,15 @@ function CaloriesStatTile({
 const RING_DAYS = 7;
 
 /**
- * WHOOP recovery zones — VERIFIED against the official developer docs,
- * https://developer.whoop.com/docs/whoop-101/ (fetched 2026-07-14):
- * "GREEN 67-100%", "YELLOW 34-66%", "RED 0-33%". Zone hues are the §1
- * fill-safe UI tokens; they color the ring arc only, never text (§5.1 —
- * --color-warning is 2.03:1 and --color-positive 3.10:1 on the card).
+ * WHOOP recovery zones (verified cutoffs + their fill-safe hues) MOVED to
+ * `src/lib/recovery.ts` in 5.5 — the hydration/recovery dot matrix rows and
+ * colors its dots by the same zones, and one dashboard must not hold two
+ * definitions of "green". Imported above; nothing about the values changed.
+ *
+ * Strain's scale ceiling — 0–21 Borg scale, same whoop-101 doc the zones cite.
+ * Stays here: the strain ring is its only consumer.
  */
-const RECOVERY_ZONES = [
-  { min: 67, name: 'green', color: 'var(--color-positive)' },
-  { min: 34, name: 'yellow', color: 'var(--color-warning)' },
-  { min: 0, name: 'red', color: 'var(--color-negative)' },
-] as const;
-
-/** Strain's scale ceiling — 0–21 Borg scale, same whoop-101 doc as above. */
 const STRAIN_SCALE_MAX = 21;
-
-function recoveryZone(score: number) {
-  // score < 0 can't happen per the API contract, but the fallback keeps the
-  // return type non-nullable without a non-null assertion.
-  return RECOVERY_ZONES.find((zone) => score >= zone.min) ?? RECOVERY_ZONES[2];
-}
 
 const ringDayFormat = utcFormat('%B %-d, %Y');
 
@@ -1304,6 +1396,7 @@ function App() {
 
         <SleepStagesTile />
         <RecoveryStrainTile series={dailySeries} rangeDays={rangeDays} />
+        <HydrationRecoveryTile series={dailySeries} rangeDays={rangeDays} />
       </main>
     </>
   );

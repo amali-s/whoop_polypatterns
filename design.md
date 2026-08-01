@@ -108,6 +108,15 @@ Notes on the soft spots (please confirm/redirect):
   the **same** chart, their actual lines would collide — split them then.
 - **Skin temp vs. cycle/period meter** both use `--color-chart-3`; fine only
   while they never share a chart.
+- **Hydration states (Phase 5.5)** reuse `--color-chart-1` (hydrated) and
+  `--color-chart-2` (dehydrated) in `HydrationRecoveryDotMatrix`, with
+  `--color-border` for "undetermined" — the same never-in-the-same-chart
+  double-duty as the row above (chart-1 is Sleep, chart-2 is Calories, and
+  neither appears in that chart). Blue-vs-orange was chosen over any other free
+  pair because those two hues ARE the comparison there, so the colorblind-safe
+  opposition matters more than usual. `--color-border` is deliberately not a
+  data hue: an unanswered day is an absence, not a third answer. Source of
+  truth: `src/lib/hydration.ts` (`HYDRATION_COLORS`).
 - **Journal accents** are proposed to reuse the UI `--color-accent` (sky
   blue) rather than consume a chart slot — keeping the 7 hues for data.
 
@@ -421,7 +430,7 @@ var(--color-accent)` focus ring, 44px tap target via the `::after`
 | 3   | Combo (line+area) | HRV (line) over a trailing rolling baseline (area). **Population ideal-band DEFERRED — shipped as a rolling baseline 2026-07-21; see the note directly below this table.** |
 | 4   | Dot-matrix        | Recovery calendar — one dot/day, color = recovery zone (red/yellow/green)                                                                                                  |
 | 5   | Dot-matrix        | Sleep performance — dot size/color = % of sleep need met                                                                                                                   |
-| 6   | Dot-matrix        | Strain matrix (one cell/day, color/intensity = day strain). Questionnaire-correlation variant revisited once Phase 5 exists.                                               |
+| 6   | Dot-matrix        | Strain matrix (one cell/day, color/intensity = day strain). **Questionnaire-correlation variant SHIPPED 2026-07-31 as its own chart (Phase 5.5) — see the note below.**    |
 
 > **Chart 3 — ideal-band DEFERRED, rolling-baseline variant shipped instead (decided 2026-07-21).**
 > The "confirmed ideal-band" this row originally locked (the Lee et al. cycle-day
@@ -442,6 +451,27 @@ var(--color-accent)` focus ring, 44px tap target via the `::after`
 > file/wiring detail: ROADMAP.md **4.3**; the deferred methodology it supersedes
 > is preserved unchanged in the "HRV / RHR 'ideal' band" section below.
 
+> **Chart 6 — the questionnaire-correlation variant shipped (2026-07-31, Phase 5.5),
+> as an ADDITION rather than a replacement.** The row above locked the strain-matrix
+> option "since Phase 5 does not exist yet"; Phase 5 now exists, so the alternative it
+> named was built: `HydrationRecoveryDotMatrix`
+> (`src/components/charts/HydrationRecoveryDotMatrix.tsx`) — one dot per day, with the
+> two variables on ORTHOGONAL channels: **hue = the self-reported `hydrated` answer**
+> (three states — hydrated / dehydrated / undetermined, which are the chart's three
+> legend entries), **row = recovery zone** (a band per zone plus a "no data" row, each
+> labelled by its range in real text on the left axis). Dot size, and the dashed
+> outline on undetermined, repeat what the hue says so the answer is never color-only
+> (§5.2 rule 4). The pairing is **hydration** vs. recovery (user-chosen 2026-07-31),
+> not "stress vs. recovery" as ROADMAP 5.5 worded it: there is no stress field in the
+> locked 5.1 question set (ROADMAP.md 5.5 records the correction, the first-shipped
+> alcohol pairing, and both revisions). **Recovery is NOT hue here** — the zone tokens
+> `--color-positive`/`-warning`/`-negative` are not used by this chart at all, since
+> hue belongs to hydration; the zone CUTOFFS still come from `src/lib/recovery.ts`, so
+> the rows are the same 67/34 boundaries the donut uses. For the hydration hues and
+> why they were chosen, see the chart-1/chart-2 double-duty note in §1. The strain
+> matrix is NOT superseded — it remains unbuilt under Phase 4.6, and nothing about
+> this row's mapping changed. Full decision + file/wiring detail: ROADMAP.md **5.5**.
+
 Candidate WHOOP v2 metrics to draw from: recovery %, HRV, resting heart rate,
 day strain, sleep performance, sleep duration/stages, respiratory rate — plus
 questionnaire self-reports. Confirm exact mapping (and time window) per chart.
@@ -455,7 +485,7 @@ questionnaire self-reports. Confirm exact mapping (and time window) per chart.
 
 | Tile                | Visualization type                      | Confirmed mapping                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Recovery donut      | Circular progress ring                  | `recovery_score` (0–100%) from the latest `whoop_recovery` row, red/yellow/green zone coloring. **Cutoffs verified 2026-07-14 against https://developer.whoop.com/docs/whoop-101/: green 67–100%, yellow 34–66%, red 0–33%** (constants: `RECOVERY_ZONES` in `src/App.tsx`). Zone hues are the fill-safe §1 UI tokens `--color-positive`/`--color-warning`/`--color-negative` — arc fill only, never text (§5.1).                                                                                                                                                                                                                                                                                                                                                                           |
+| Recovery donut      | Circular progress ring                  | `recovery_score` (0–100%) from the latest `whoop_recovery` row, red/yellow/green zone coloring. **Cutoffs verified 2026-07-14 against https://developer.whoop.com/docs/whoop-101/: green 67–100%, yellow 34–66%, red 0–33%** (constants: `RECOVERY_ZONES` in `src/lib/recovery.ts` — moved there from `src/App.tsx` in Phase 5.5, values unchanged, when the alcohol/recovery dot matrix became a second consumer of the same cutoffs). Zone hues are the fill-safe §1 UI tokens `--color-positive`/`--color-warning`/`--color-negative` — arc fill only, never text (§5.1).                                                                                                                                                                                                                |
 | Strain donut        | Circular progress ring                  | `strain` (WHOOP 0–21 scale) from the latest `whoop_cycles` row, ring fraction = `strain / 21`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Period meter        | Dot-matrix cycle-day progress bar       | **Confirmed 2026-07-14: self-reported, not WHOOP API.** Verified against the live WHOOP v2 OpenAPI spec — no menstrual-cycle resource exists (full resource list: Activity ID Mapping, Partner, User, Cycle, Recovery, Sleep, Workout). **Entry point (revised 2026-07-14): the Phase 5 daily journal's existing "Period" field** (`journal-stub-list` in `src/App.tsx`), not a standalone input — so this tile depends on Phase 5 shipping before it can show real data. Cycle start is inferred from that daily field via an episode-detection algorithm — see the cycle-start-detection rule below — not from an explicit "day 1" action. The tile stays in its empty state until Phase 5's journal exists and the user has logged at least one period day. See ROADMAP.md 4.10 and 5.1. |
 | Skin-temp sparkline | Minimal line chart (no axes)            | `skin_temp_celsius` from `whoop_recovery`, trailing window (14 or 30 days — TBD).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |

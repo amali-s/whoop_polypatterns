@@ -3,14 +3,27 @@
 // Read endpoint for chart 4.2 (recovery % over day strain combo). Returns one
 // DailyMetricPoint per calendar day for the session's member over the last
 // `days` days (default 30, capped at 90), shaped by buildDailySeries (Phase
-// 2.6) from all four synced tables. Unlike /api/sleep-stages, EVERY day in
-// the window gets a point — dataless days come back all-null so the chart
-// renders a gap at real axis width (null discipline), never a skipped day.
+// 2.6) from the four synced WHOOP tables PLUS the daily journal (Phase 5.5).
+// Unlike /api/sleep-stages, EVERY day in the window gets a point — dataless
+// days come back all-null so the chart renders a gap at real axis width (null
+// discipline), never a skipped day.
+//
+// PHASE 5.5 — the fifth read is `public.daily_questionnaire`, joined on the
+// same (user_id, day) window as the other four so the questionnaire answer and
+// the WHOOP metrics for a day arrive in ONE point. Deliberately NOT a second
+// endpoint and not a second client-side fetch (the 4.3/4.15 rule): the charts
+// that correlate the two would otherwise have to re-join two payloads in the
+// browser. `api/journal.ts` is untouched — that is the single-day read/write
+// the 5.2 form talks to, a different contract from this window read.
 //
 // SECURITY (mirrors /api/sleep-stages' posture):
 //   - The caller is identified ONLY by the HttpOnly whoop_session cookie; no
 //     token material is read or returned (this endpoint never talks to WHOOP —
 //     it reads the Supabase cache the daily sync fills).
+//   - The journal read is column-narrowed to what a chart shows. The service-
+//     role client bypasses RLS, so the user_id filter in readMetricRows is the
+//     whole boundary between two members' health answers — the same posture
+//     api/journal.ts documents for its own writes.
 //   - On failure the body is generic: no Supabase error messages, status
 //     codes, or dependency names leave the server. Details go to console.error.
 //
@@ -33,6 +46,7 @@ import {
 import {
   buildDailySeries,
   type CycleMetricRow,
+  type JournalMetricRow,
   type RecoveryMetricRow,
   type SleepMetricRow,
   type WorkoutMetricRow,
@@ -103,6 +117,12 @@ const WORKOUT_METRIC_COLUMNS = [
   'distance_meter',
 ].join(', ');
 
+// Phase 5.5 — the journal read is NARROW on purpose. `daily_questionnaire`
+// holds cramps / period / discharge / notes as well, and none of them belong in
+// a payload the browser gets for a recovery chart; this list is exactly
+// JournalMetricRow's fields. Add a column here only when a chart reads it.
+const JOURNAL_METRIC_COLUMNS = ['day', 'hydrated'].join(', ');
+
 /** Parse the request's Cookie header into a name→value map (matches session.ts). */
 function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
@@ -147,9 +167,9 @@ function windowStartDay(days: number): string {
 }
 
 /**
- * Read one table's metric rows for the member/window. The four tables share
+ * Read one table's metric rows for the member/window. All five tables share
  * an identical query shape (user_id + day window, ascending), so the
- * error-classification path lives once here instead of four times inline.
+ * error-classification path lives once here instead of five times inline.
  * T is the caller's *MetricRow — the untyped client can't prove the selected
  * columns match it, hence the cast (same caveat as /api/sleep-stages).
  */
@@ -198,7 +218,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   try {
     const supabase = getSupabaseAdmin();
-    const [cycles, recovery, sleep, workouts] = await Promise.all([
+    const [cycles, recovery, sleep, workouts, journal] = await Promise.all([
       readMetricRows<CycleMetricRow>(supabase, 'whoop_cycles', CYCLE_METRIC_COLUMNS, userId, start),
       readMetricRows<RecoveryMetricRow>(
         supabase,
@@ -215,9 +235,19 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         userId,
         start,
       ),
+      // Not a WHOOP table — the Phase 5.1 journal, same window and same member.
+      readMetricRows<JournalMetricRow>(
+        supabase,
+        'daily_questionnaire',
+        JOURNAL_METRIC_COLUMNS,
+        userId,
+        start,
+      ),
     ]);
 
-    json(res, 200, { points: buildDailySeries(cycles, recovery, sleep, workouts, { start, end }) });
+    json(res, 200, {
+      points: buildDailySeries(cycles, recovery, sleep, workouts, journal, { start, end }),
+    });
   } catch (err) {
     if (err instanceof DatabaseUnavailableError) {
       console.error(`Daily series: database unavailable (status ${err.status}).`);
