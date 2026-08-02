@@ -13,7 +13,7 @@ import { Tooltip } from './Tooltip';
 import { useTooltip } from './useTooltip';
 import { ChartDataTable } from './ChartDataTable';
 import type { ChartDataColumn } from './ChartDataTable';
-import { chartTransitionDuration } from './motion';
+import { chartMarkStyle, chartTransitionDuration } from './motion';
 import { buildRollingBaseline, type DailyMetricPoint } from '../../../api/_lib/transforms';
 
 // Combo chart (4.3): daily HRV as a line OVER its own trailing rolling baseline
@@ -126,7 +126,7 @@ export function HrvBaselineComboChart({ data, title, tableCaption }: HrvBaseline
   // pinned to PLOT_HEIGHT, so dims.height is ignored (Sparkline precedent).
   const [wrapperRef, dims] = useChartDimensions(MARGIN, 0.3);
   const boundedHeight = Math.max(0, PLOT_HEIGHT - MARGIN.top - MARGIN.bottom);
-  const { tooltip, show, hide, onKeyDown } = useTooltip<HrvBaselineDatum>();
+  const { tooltip, visible, show, hide, onKeyDown } = useTooltip<HrvBaselineDatum>();
 
   // Entrance fade, gated on reduced motion (design.md §5.2 rule 5) — same
   // fade-in pattern as RecoveryStrainComboChart.
@@ -256,6 +256,11 @@ export function HrvBaselineComboChart({ data, title, tableCaption }: HrvBaseline
     transition: duration > 0 ? `opacity ${duration}ms ease-out` : undefined,
   };
 
+  // The marks take the same entrance fade but hand its duration to charts.css
+  // as a custom property instead of an inline `transition` shorthand — the
+  // shorthand would have outranked the hover/focus transition on .chart-mark.
+  const markStyle = chartMarkStyle(entered, duration);
+
   return (
     <div className="chart-wrapper" ref={wrapperRef}>
       {dims.width > 0 && (
@@ -309,7 +314,7 @@ export function HrvBaselineComboChart({ data, title, tableCaption }: HrvBaseline
                   cy={cy}
                   r={3.5}
                   fill={HRV_COLOR}
-                  style={fadeStyle}
+                  style={markStyle}
                   tabIndex={0}
                   role="img"
                   aria-label={`HRV ${formatHrv(d.hrv)} milliseconds, recent baseline ${
@@ -328,7 +333,7 @@ export function HrvBaselineComboChart({ data, title, tableCaption }: HrvBaseline
       )}
       {/* Identical content on hover and focus (rule 3) — one show() path. */}
       {tooltip && (
-        <Tooltip x={tooltip.x} y={tooltip.y} visible>
+        <Tooltip x={tooltip.x} y={tooltip.y} visible={visible}>
           <strong>{formatDay(tooltip.datum.day, longDay)}</strong>
           <div>
             HRV: {tooltip.datum.hrv != null ? `${formatHrv(tooltip.datum.hrv)} ms` : 'no data'}

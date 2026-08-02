@@ -14,7 +14,7 @@ import { Tooltip } from './Tooltip';
 import { useTooltip } from './useTooltip';
 import { ChartDataTable } from './ChartDataTable';
 import type { ChartDataColumn } from './ChartDataTable';
-import { chartTransitionDuration } from './motion';
+import { chartMarkStyle, chartTransitionDuration } from './motion';
 import type { DailyMetricPoint } from '../../../api/_lib/transforms';
 
 // Combo chart (4.2): Recovery % and day strain as TWO LINES on one x (day)
@@ -32,9 +32,25 @@ import type { DailyMetricPoint } from '../../../api/_lib/transforms';
 //
 // STROKES — the --color-muted outline on the recovery points is removed
 // (confirmed), as is the hairline on the legend swatches. The muted CASING
-// under the recovery LINE is deliberately KEPT: it was not in scope, and
-// #6BCB3C is 2.05:1 on the white card, so the casing is still what carries
-// that line past §5.2 rule 4's 3:1 non-text threshold.
+// under the recovery LINE is now removed TOO (2026-08-01, second pass,
+// explicitly requested).
+//
+// FLAGGED, not silently shipped: that casing was §5.2 rule 4's contrast
+// remedy for this line. #6BCB3C is 2.05:1 on the white card and 1.89:1 on the
+// translucent tile, so the recovery line no longer clears the 3:1 non-text
+// threshold on its own. RECOVERY_COLOR was left alone rather than darkened
+// because --color-positive is deliberately the same green the recovery ring
+// fills with (see below), and breaking that agreement is a design call, not a
+// cleanup. What rule 4 now rests on here is its OTHER half — redundant
+// encoding: the legend names "Recovery %" in real text, every point carries an
+// aria-label, every value is in the tooltip and in the sr-only data table, and
+// the two series sit on separate labelled axes. That is the same trade the
+// HRV/RHR lines (#FFA1A0, 1.93:1) and the strain line (#02B3FF, 2.36:1)
+// already run under since the 2026-08-01 pass — this line was the last one
+// still wearing a casing, so the chart is at least now internally consistent.
+// If the trade turns out wrong, a darker green in the same hue family —
+// #4E9E1E, computed 3.37:1 on white and 3.10:1 on the tile — clears 3:1 on
+// its own and is a one-constant change to RECOVERY_COLOR below.
 //
 // DUAL-SCALE CHOICE: recovery is a bounded percentage (left axis, fixed
 // [0, 100] so 50% always sits mid-chart regardless of the window's values);
@@ -101,7 +117,7 @@ export function RecoveryStrainComboChart({
   // pinned to PLOT_HEIGHT, so dims.height is ignored (the 4.3/4.15 precedent).
   const [wrapperRef, dims] = useChartDimensions(MARGIN, 0.32);
   const boundedHeight = Math.max(0, PLOT_HEIGHT - MARGIN.top - MARGIN.bottom);
-  const { tooltip, show, hide, onKeyDown } = useTooltip<DailyMetricPoint>();
+  const { tooltip, visible, show, hide, onKeyDown } = useTooltip<DailyMetricPoint>();
 
   // Entrance animation, gated on reduced motion (design.md §5.2 rule 5) —
   // same fade-in pattern as StackedBarChart.
@@ -217,6 +233,11 @@ export function RecoveryStrainComboChart({
     transition: duration > 0 ? `opacity ${duration}ms ease-out` : undefined,
   };
 
+  // The marks take the same entrance fade but hand its duration to charts.css
+  // as a custom property instead of an inline `transition` shorthand — the
+  // shorthand would have outranked the hover/focus transition on .chart-mark.
+  const markStyle = chartMarkStyle(entered, duration);
+
   return (
     <div className="chart-wrapper" ref={wrapperRef}>
       {dims.width > 0 && (
@@ -248,11 +269,11 @@ export function RecoveryStrainComboChart({
             <g aria-hidden="true" style={fadeStyle}>
               {/* Strain: a plain line, no area fill (2026-08-01). */}
               <path d={strainLinePath} fill="none" stroke={STRAIN_COLOR} strokeWidth={2} />
-              {/* Muted casing under the recovery line, KEPT: #6BCB3C is 2.05:1
-                  on the white card and still needs it to clear rule 4's 3:1
-                  non-text threshold. Removing the POINT outlines was in scope;
-                  removing this was not. */}
-              <path d={recoveryLinePath} fill="none" stroke="var(--color-muted)" strokeWidth={4} />
+              {/* Recovery: a bare line as of 2026-08-01 — the --color-muted
+                  strokeWidth={4} casing that used to sit under it is REMOVED at
+                  the user's direction, and the contrast cost was flagged back
+                  rather than absorbed silently. See the STROKES note in the
+                  header for what now carries rule 4 here. */}
               <path d={recoveryLinePath} fill="none" stroke={RECOVERY_COLOR} strokeWidth={2} />
             </g>
             {/* Focusable points on the recovery line (rule 3) — one Tab stop
@@ -277,7 +298,7 @@ export function RecoveryStrainComboChart({
                   cy={cy}
                   r={3.5}
                   fill={RECOVERY_COLOR}
-                  style={fadeStyle}
+                  style={markStyle}
                   tabIndex={0}
                   role="img"
                   aria-label={`Recovery ${d.recoveryScore} percent, day strain ${
@@ -296,7 +317,7 @@ export function RecoveryStrainComboChart({
       )}
       {/* Identical content on hover and focus (rule 3) — one show() path. */}
       {tooltip && (
-        <Tooltip x={tooltip.x} y={tooltip.y} visible>
+        <Tooltip x={tooltip.x} y={tooltip.y} visible={visible}>
           <strong>{formatDay(tooltip.datum.day, longDay)}</strong>
           <div>
             Recovery:{' '}

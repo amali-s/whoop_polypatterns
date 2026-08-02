@@ -14,7 +14,7 @@ import { Tooltip } from './Tooltip';
 import { useTooltip } from './useTooltip';
 import { ChartDataTable } from './ChartDataTable';
 import type { ChartDataColumn } from './ChartDataTable';
-import { chartTransitionDuration } from './motion';
+import { chartMarkStyle, chartTransitionDuration } from './motion';
 
 // Generic stacked-bar chart (4.1's component, but not sleep-specific — the
 // same component can later render e.g. strain contributors per day). Follows
@@ -95,7 +95,7 @@ export function StackedBarChart<T>({
   // pinned to PLOT_HEIGHT, so dims.height is ignored (the 4.3/4.15 precedent).
   const [wrapperRef, dims] = useChartDimensions(MARGIN, 0.32);
   const boundedHeight = Math.max(0, PLOT_HEIGHT - MARGIN.top - MARGIN.bottom);
-  const { tooltip, show, hide, onKeyDown } = useTooltip<T>();
+  const { tooltip, visible, show, hide, onKeyDown } = useTooltip<T>();
 
   // Entrance animation, gated on reduced motion (design.md §5.2 rule 5): bars
   // fade in over `duration` ms; with reduced motion the duration is 0 and the
@@ -226,10 +226,11 @@ export function StackedBarChart<T>({
                         width={xScale.bandwidth()}
                         height={height}
                         fill={meta.color}
-                        style={{
-                          opacity: entered ? 1 : 0,
-                          transition: duration > 0 ? `opacity ${duration}ms ease-out` : undefined,
-                        }}
+                        // Entrance fade, with its duration handed to charts.css
+                        // as a custom property rather than an inline
+                        // `transition` shorthand — the shorthand would have
+                        // outranked .chart-mark's hover/focus transition.
+                        style={chartMarkStyle(entered, duration)}
                         tabIndex={0}
                         role="img"
                         aria-label={`${meta.label}, ${segmentValue ?? 0} ${unit} on ${formatDay(day(datum), longDay)}`}
@@ -249,7 +250,7 @@ export function StackedBarChart<T>({
       )}
       {/* Identical content on hover and focus (rule 3) — one show() path. */}
       {tooltip && tooltipDay !== null && (
-        <Tooltip x={tooltip.x} y={tooltip.y} visible>
+        <Tooltip x={tooltip.x} y={tooltip.y} visible={visible}>
           <strong>{formatDay(tooltipDay, longDay)}</strong>
           {/* Top-to-bottom to match the visual stack (keys are bottom-to-top). */}
           {[...keys].reverse().map((k) => {

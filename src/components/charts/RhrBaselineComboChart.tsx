@@ -13,7 +13,7 @@ import { Tooltip } from './Tooltip';
 import { useTooltip } from './useTooltip';
 import { ChartDataTable } from './ChartDataTable';
 import type { ChartDataColumn } from './ChartDataTable';
-import { chartTransitionDuration } from './motion';
+import { chartMarkStyle, chartTransitionDuration } from './motion';
 import { buildRollingBaseline, type DailyMetricPoint } from '../../../api/_lib/transforms';
 
 // Combo chart (4.15): daily resting heart rate as a line OVER its own trailing
@@ -125,7 +125,7 @@ export function RhrBaselineComboChart({ data, title, tableCaption }: RhrBaseline
   // pinned to PLOT_HEIGHT, so dims.height is ignored (Sparkline/4.3 precedent).
   const [wrapperRef, dims] = useChartDimensions(MARGIN, 0.3);
   const boundedHeight = Math.max(0, PLOT_HEIGHT - MARGIN.top - MARGIN.bottom);
-  const { tooltip, show, hide, onKeyDown } = useTooltip<RhrBaselineDatum>();
+  const { tooltip, visible, show, hide, onKeyDown } = useTooltip<RhrBaselineDatum>();
 
   // Entrance fade, gated on reduced motion (design.md §5.2 rule 5) — same
   // fade-in pattern as HrvBaselineComboChart.
@@ -258,6 +258,11 @@ export function RhrBaselineComboChart({ data, title, tableCaption }: RhrBaseline
     transition: duration > 0 ? `opacity ${duration}ms ease-out` : undefined,
   };
 
+  // The marks take the same entrance fade but hand its duration to charts.css
+  // as a custom property instead of an inline `transition` shorthand — the
+  // shorthand would have outranked the hover/focus transition on .chart-mark.
+  const markStyle = chartMarkStyle(entered, duration);
+
   return (
     <div className="chart-wrapper" ref={wrapperRef}>
       {dims.width > 0 && (
@@ -311,7 +316,7 @@ export function RhrBaselineComboChart({ data, title, tableCaption }: RhrBaseline
                   cy={cy}
                   r={3.5}
                   fill={RHR_COLOR}
-                  style={fadeStyle}
+                  style={markStyle}
                   tabIndex={0}
                   role="img"
                   aria-label={`RHR ${formatRhr(d.rhr)} beats per minute, recent baseline ${
@@ -332,7 +337,7 @@ export function RhrBaselineComboChart({ data, title, tableCaption }: RhrBaseline
       )}
       {/* Identical content on hover and focus (rule 3) — one show() path. */}
       {tooltip && (
-        <Tooltip x={tooltip.x} y={tooltip.y} visible>
+        <Tooltip x={tooltip.x} y={tooltip.y} visible={visible}>
           <strong>{formatDay(tooltip.datum.day, longDay)}</strong>
           <div>
             RHR: {tooltip.datum.rhr != null ? `${formatRhr(tooltip.datum.rhr)} bpm` : 'no data'}

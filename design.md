@@ -70,6 +70,22 @@
 >    in its legend, every focusable point carries an `aria-label`, every value
 >    is in the tooltip and in the sr-only data table. A deliberate trade of
 >    mark contrast for the requested cleaner look, not an oversight.
+>
+>    **Second pass, same date — the recovery line's casing went too.** The
+>    `--color-muted` `strokeWidth={4}` casing under the recovery line in 4.2 was
+>    the last one still standing; it was removed at the user's explicit
+>    direction and the cost was flagged back rather than absorbed. The recovery
+>    line is now bare `#6BCB3C` at 2.05:1 on the white card / 1.89:1 on the
+>    tile, so it rests on the redundancy half of rule 4 exactly as the HRV/RHR
+>    and strain lines already did — which at least makes the four full-series
+>    charts internally consistent instead of one line wearing a remedy the
+>    others had lost. **Remedy if the trade turns out wrong:** a darker green in
+>    the same family — `#4E9E1E`, computed 3.37:1 on white and 3.10:1 on the
+>    tile — clears 3:1 on its own, as a one-constant change to `RECOVERY_COLOR`
+>    in `RecoveryStrainComboChart.tsx`. Note that this would break the
+>    line's deliberate agreement with the recovery donut's green zone (both read
+>    `--color-positive` today), so it is a design call, not a cleanup.
+>
 > 3. **`--color-border` is now a control boundary** on `.ui-input`/`.ui-textarea`
 >    and the unselected journal chips, at 1.21:1 against the tile — the rule in
 >    §5.1 that forbade exactly this was overridden by explicit confirmation. The

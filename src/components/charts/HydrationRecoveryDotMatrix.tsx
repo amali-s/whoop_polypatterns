@@ -8,6 +8,9 @@ import { Tooltip } from './Tooltip';
 import { useTooltip } from './useTooltip';
 import { ChartDataTable } from './ChartDataTable';
 import type { ChartDataColumn } from './ChartDataTable';
+// No chartMarkStyle here: this chart's entrance fade lives on the wrapping
+// <g class="correlation-dots">, not on the dots, so the dots carry no inline
+// `transition` for .chart-mark's hover/focus rules to collide with.
 import { chartTransitionDuration } from './motion';
 import { RECOVERY_ZONES, recoveryZone } from '../../lib/recovery';
 import { HYDRATION_COLORS, hydrationState } from '../../lib/hydration';
@@ -298,7 +301,7 @@ export function HydrationRecoveryDotMatrix({
   const [wrapperRef, dims] = useChartDimensions(MARGIN, 0.3);
   const boundedHeight = ROW_ORDER.length * ROW_HEIGHT;
   const plotHeight = boundedHeight + MARGIN.top + MARGIN.bottom;
-  const { tooltip, show, hide, onKeyDown } = useTooltip<HydrationRecoveryDatum>();
+  const { tooltip, visible, show, hide, onKeyDown } = useTooltip<HydrationRecoveryDatum>();
 
   // Entrance fade, gated on reduced motion (§5.2 rule 5) — same pattern as
   // every other chart: with reduced motion `duration` is 0, `entered` starts
@@ -508,7 +511,7 @@ export function HydrationRecoveryDotMatrix({
       )}
       {/* Identical content on hover and focus (rule 3) — one show() path. */}
       {tooltip && (
-        <Tooltip x={tooltip.x} y={tooltip.y} visible>
+        <Tooltip x={tooltip.x} y={tooltip.y} visible={visible}>
           <strong>{formatDay(tooltip.datum.day, longDay)}</strong>
           <div>
             Recovery:{' '}

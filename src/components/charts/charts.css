@@ -35,16 +35,38 @@
   color: var(--color-text);
   font-size: var(--text-xs);
   white-space: nowrap;
-  /* Ease-in reveal on hover AND on press/tap (2026-08-01). An ANIMATION, not
-   * a transition: the tooltip is conditionally mounted, so there is no "from"
-   * state for a transition to interpolate out of. Touch is covered without
-   * new handlers — the marks carry tabIndex=0, so a tap focuses them and the
-   * same show() path runs that hover uses.
+  /* Reveal on hover AND on press/tap. An ANIMATION, not a transition: the
+   * tooltip is conditionally mounted, so there is no "from" state for a
+   * transition to interpolate out of. Touch is covered without new handlers —
+   * the marks carry tabIndex=0, so a tap focuses them and the same show() path
+   * runs that hover uses.
    *
-   * 160ms is an ASSUMPTION (the brief said "a short, subtle ease-in, e.g.
-   * ~150-200ms" and left the exact value open) — one constant, shared by all
-   * four charts, so they can't drift. */
-  animation: chart-tooltip-in 160ms ease-in;
+   * EASE-OUT since 2026-08-01 (was ease-in): entering a node should decelerate
+   * into place — fast off the mark, settling at the end. The LEAVE below is the
+   * mirror, ease-in.
+   *
+   * 160ms is shared by all five charts (and by .chart-mark, and by
+   * useTooltip's unmount delay via CHART_HOVER_DURATION in motion.ts) so the
+   * two halves can't drift. */
+  animation: chart-tooltip-in 160ms ease-out;
+  /* The LEAVE half. useTooltip keeps the datum mounted for 160ms after hide()
+   * and Tooltip stamps data-leaving on it, so unlike the enter there IS a
+   * "from" state here and a real transition can run. */
+  opacity: 1;
+  transition:
+    opacity 160ms ease-in,
+    transform 160ms ease-in;
+}
+
+/* Mid-exit: the same 4px drop the reveal rises out of, played backwards under
+ * ease-in. `animation: none` cancels a reveal still in flight (a flick across
+ * two nodes) so it can't hold the transition off — and, because
+ * animation-name flipping none -> chart-tooltip-in restarts an animation, a
+ * datum that comes BACK during its own exit re-runs the ease-out reveal. */
+.chart-tooltip[data-leaving='true'] {
+  animation: none;
+  opacity: 0;
+  transform: translate(-50%, calc(-100% - var(--space-2) + 4px));
 }
 
 @keyframes chart-tooltip-in {
@@ -88,9 +110,53 @@
   stroke: none;
 }
 
-/* Focusable chart marks (design.md §5.2 rule 3 — roving tabindex points). */
+/* Focusable chart marks (design.md §5.2 rule 3 — roving tabindex points).
+ *
+ * Hover/tap emphasis added 2026-08-01. The state is carried by CUSTOM
+ * PROPERTIES, not by new geometry in any chart's SVG: every mark keeps the
+ * r/x/y/width the data gives it, and only the :hover/:focus rules below move
+ * the knobs. `transform-box: fill-box` is what makes `transform-origin: center`
+ * mean the MARK's own center rather than the SVG user-space origin — without
+ * it a scaled dot would fly across the plot.
+ *
+ * `:focus`, not `:focus-visible`, for the emphasis: a tap on a tabIndex=0 mark
+ * focuses it but does NOT match :focus-visible, and touch is half of what this
+ * state is for. The focus RING below stays :focus-visible — a mouse click
+ * shouldn't leave an outline behind.
+ *
+ * The transition is written as longhands so :hover/:focus can flip only the
+ * timing function: ease-OUT entering (fast off the mark, settling in), ease-IN
+ * leaving (the mirror). Entering uses the after-change style's easing, leaving
+ * falls back to this base rule's — which is exactly the asymmetry wanted.
+ *
+ * The opacity slot is the per-chart ENTRANCE fade, whose duration arrives
+ * inline as --chart-fade-duration (see chartMarkStyle in motion.ts); it used to
+ * be an inline `transition` shorthand, which would have overridden everything
+ * here. */
 .chart-mark {
   cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(var(--chart-mark-scale, 1));
+  fill-opacity: var(--chart-mark-fill-opacity, 1);
+  transition-property: opacity, transform, fill-opacity;
+  transition-duration: var(--chart-fade-duration, 0ms), 160ms, 160ms;
+  transition-timing-function: ease-out, ease-in, ease-in;
+}
+
+.chart-mark:hover,
+.chart-mark:focus {
+  --chart-mark-scale: 1.4;
+  transition-timing-function: ease-out, ease-out, ease-out;
+}
+
+/* Bars emphasize by fill instead: a stacked segment scaled about its own
+ * center would lift off the stack and overlap the segments above and below it,
+ * which reads as a data change rather than a hover. */
+.chart-mark.chart-bar-segment:hover,
+.chart-mark.chart-bar-segment:focus {
+  --chart-mark-scale: 1;
+  --chart-mark-fill-opacity: 0.72;
 }
 
 .chart-mark:focus-visible {
@@ -347,10 +413,23 @@
     transition: none !important;
   }
 
-  /* The tooltip's ease-in reveal (2026-08-01) is an animation, not a
-   * transition, so it needs its own kill switch here. */
+  /* The tooltip's reveal is an animation, not a transition, so it needs its
+   * own kill switch — and since 2026-08-01 the EXIT is a transition, which
+   * needs the other one. With the transition gone the [data-leaving] state
+   * applies instantly, so the tooltip still disappears the moment hide() runs
+   * rather than lingering for useTooltip's unmount delay. */
   .chart-tooltip {
     animation: none;
+    transition: none !important;
+  }
+
+  /* Hover/focus emphasis on the marks (2026-08-01). The STATE is kept — a
+   * bigger dot / dimmer bar under the pointer is an affordance, not decoration,
+   * and rule 5 asks for a static equivalent, not for no feedback — but it
+   * arrives instantly instead of easing. This also covers the entrance fade
+   * that shares the same shorthand. */
+  .chart-mark {
+    transition: none !important;
   }
 
   .correlation-dots {
