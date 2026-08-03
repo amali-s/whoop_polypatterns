@@ -71,17 +71,62 @@ a `dayOfCycle` that is wrong, not merely imprecise.
   trick — **reverted afterwards, `git diff vite.config.ts` empty**): the hook
   requests exactly `from=2026-04-26&to=2026-08-03` (100 inclusive days); 3
   episodes → "Day 5 of 29", `lengthSource: 'estimated'`, 29 dots, matching
-  `<desc>`; 1 episode → text-only "Day 7", no dot row, no assumed 28; 0 → the
+  `<desc>`; 1 episode → "Day 7" over an open-ended 7-pill row with no track
+  and no assumed 28 (see the follow-up below); 0 → the
   corrected no-data copy; 401 → "Connect your WHOOP account to see your cycle
   day."; 500 → the error state; clipped fixture → 29, not the unguarded 32. No
   console errors.
+
+**Follow-up the same day: the `day-only` state got its pills back**
+
+5.7 made that state reachable for the first time, and a bare "Day 7" text line
+read as a broken tile rather than an honest one. `DotMatrix` gained an
+**`openEnded`** mode: draw the filled dots, draw **no track**. Day 3 is 3 pills
+then blank space — a count, not a proportion, with nothing marking where a
+cycle would end, so the "never assume 28" decision is untouched (no denominator
+drawn, none stated, and the caption reads "no cycle length yet — log a second
+period"). `total` there is only a **reserved width** (`CYCLE_ROW_SLOTS` = 28,
+the no-data track's rhythm) so a 3-pill row draws pills the size a 29-pill row
+does; the viewBox scales to the tile, so sizing to the filled count alone would
+balloon three dots across it. The row **grows** past the reservation rather than
+capping — day 31 draws 31 pills — because with no denominator there is nothing
+to cap against. Verified at days 1, 7 and 31 (no page overflow at 31), with the
+`full` and `no-data` states unchanged.
+
+**Second follow-up: the dots encode the journal's answer, not just position**
+
+A dot's fill used to mean "has the cycle reached this day". It now means what
+the journal SAID about that day: `'yes'` → `--color-chart-3` (#ffcce7),
+`'no'` → `--color-chart-4` (#d9e3f0). `cycleState` gained `startDate` so dot
+_i_ maps to `startDate + i` days; `DotMatrix` gained an index-aligned
+`dotStyles`; the palette and the summary sentence live in the new pure
+`src/lib/period-dots.ts` (the `hydration.ts` precedent).
+
+**Four states, because the column is a tri-state and the row holds unreached
+days too.** Not-logged takes `--color-border` + a DASHED outline (the hydration
+matrix's "Undetermined" treatment) and pointedly NOT the `'no'` colour — NULL
+means NOT ANSWERED, and colouring it as answered would put a claim on screen
+the user never made. Future days take `--color-border` with no outline.
+
+**Why every reached dot wears a hairline.** `--color-chart-4` (#d9e3f0) is
+10/255 in one channel from `--color-border` (#cfe3f0), so as flat fills "no
+period" and "not yet reached" are the same pixel; and #ffcce7 (1.2:1) /
+#d9e3f0 (1.15:1) are both far under 3:1 on the white card. The `--color-muted`
+hairline solves both at once, exactly as it does in the hydration matrix — the
+outline, not the fill, is the separator.
+
+**Trade worth knowing:** the row no longer reads as cycle PROGRESS. Only period
+days are pink, so on day 20 of 29 the elapsed run survives only as the hairline
+rather than a block of colour. Hollow or smaller future dots would restore it —
+not done unasked.
 
 **Still open / flagged**
 
 - **NOT live-verified.** Nothing has ever written a row to the real
   `daily_questionnaire` from a logged-in browser (5.3's standing residual), so
   the meter has never met a real logged period. Confirm on prod by logging
-  "Period: yes" on a couple of days — one episode gives text-only "Day _n_",
+  "Period: yes" on a couple of days — one episode gives "Day _n_" over an
+  open-ended pill row,
   and the dot matrix only appears once a second episode ≥4 days later exists.
 - **`typicalCycleLength` is still unresolved and its TODO intact** — the
   `user_settings` endpoint (ROADMAP 5.1 constraint 2) remains out of scope, so

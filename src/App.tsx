@@ -24,6 +24,7 @@ import {
   type StackedBarSeriesKey,
 } from './components/charts';
 import { cycleState, type PeriodLog } from './lib/cycle';
+import { describePeriodDots, periodDotStates, periodDotStyles } from './lib/period-dots';
 // localTodayISO lived here through 5.4; it moved to src/lib/day.ts in 5.7 so
 // usePeriodLogs can share the one definition instead of copying it.
 import { localTodayISO } from './lib/day';
@@ -968,6 +969,16 @@ function StrainRingTile({ series }: { series: DailySeriesState }) {
 }
 
 /**
+ * Width the cycle row reserves, in dot slots. It is NOT a cycle length and is
+ * never stated as one: the `no-data` track uses it for the decorative row
+ * inherited from the original placeholder strip, and the `day-only` count uses
+ * it so a 3-pill row draws pills the same size a 29-pill row would (the SVG
+ * scales its viewBox to the tile, so a row sized to 3 would balloon). The
+ * `full` state ignores it entirely and uses the real cycle length.
+ */
+const CYCLE_ROW_SLOTS = 28;
+
+/**
  * Bento period tile (§4: dot-matrix cycle-day meter; self-reported — the
  * WHOOP v2 API has no menstrual-cycle resource).
  *
@@ -999,6 +1010,30 @@ function PeriodMeterTile({ typicalCycleLength = null }: { typicalCycleLength?: n
     typicalCycleLength,
     periodLogs.status === 'ready' ? periodLogs.windowStart : undefined,
   );
+  // Per-dot meaning (2026-08-03): a dot's fill is now that CALENDAR DAY's
+  // journal answer — period / no period / never logged — rather than merely
+  // whether the cycle has reached it. `state.startDate` is what makes the
+  // mapping possible: dot i stands for startDate + i days. Everything about
+  // which colour means what lives in src/lib/period-dots.ts.
+  const dotsElapsed =
+    state.kind === 'no-data'
+      ? 0
+      : state.kind === 'full'
+        ? Math.min(state.dayOfCycle, state.cycleLength)
+        : state.dayOfCycle;
+  const dotStates =
+    state.kind === 'no-data'
+      ? []
+      : periodDotStates(
+          logs,
+          state.startDate,
+          dotsElapsed,
+          state.kind === 'full' ? state.cycleLength : dotsElapsed,
+        );
+  const dotStyles = periodDotStyles(dotStates);
+  // The colours' real-text channel (§5.2 rule 4) — the counts hold up with hue
+  // ignored entirely, which is also what a screen reader gets.
+  const dotSummary = describePeriodDots(dotStates);
   // TODO(design.md §4 limitation #6): once real journal data flows in, surface
   // the inference caveat in the UI — episode starts are inferred from daily
   // checkboxes, so a >3-day spotting gap inside one real period reads as a new
@@ -1020,7 +1055,7 @@ function PeriodMeterTile({ typicalCycleLength = null }: { typicalCycleLength?: n
         // Copy corrected in 5.7: the journal EXISTS now, so the honest reason
         // is that no period day has been logged inside the fetched window.
         <DotMatrix
-          total={28}
+          total={CYCLE_ROW_SLOTS}
           filled={0}
           noData
           title="Cycle day"
@@ -1031,19 +1066,34 @@ function PeriodMeterTile({ typicalCycleLength = null }: { typicalCycleLength?: n
       )}
       {state.kind === 'day-only' && (
         // A start date but no cycle length (no second episode, no user-reported
-        // value): text only. Never an assumed 28-dot denominator (user
-        // decision 2026-07-18 — Phase 5 asks for typical length once, on the
-        // first logged period).
-        <p className="dot-matrix-value">Day {state.dayOfCycle}</p>
+        // value). Still NO assumed 28-dot denominator (user decision
+        // 2026-07-18) — but the count itself is real and can be drawn, so this
+        // renders `dayOfCycle` filled pills with NO track behind them
+        // (`openEnded`). Three pills on day 3 is a count, not a proportion:
+        // nothing marks where a cycle would end, and the copy states outright
+        // that no length exists yet. This replaced a bare text line on
+        // 2026-08-03 — that version was honest but read as a broken tile.
+        <DotMatrix
+          total={CYCLE_ROW_SLOTS}
+          filled={state.dayOfCycle}
+          openEnded
+          dotStyles={dotStyles}
+          title="Cycle day"
+          desc={`Day ${state.dayOfCycle}. ${dotSummary} No cycle length yet — a second logged period is needed before one can be estimated.`}
+          valueLabel={`Day ${state.dayOfCycle}`}
+          caption={dotSummary || 'no cycle length yet — log a second period'}
+        />
       )}
       {state.kind === 'full' && (
         <DotMatrix
           total={state.cycleLength}
           filled={state.dayOfCycle}
+          dotStyles={dotStyles}
+          caption={dotSummary || undefined}
           title="Cycle day"
           desc={`Day ${state.dayOfCycle} of ${
             state.lengthSource === 'estimated' ? 'an estimated' : 'your reported'
-          } ${state.cycleLength}-day cycle.`}
+          } ${state.cycleLength}-day cycle. ${dotSummary}`}
           valueLabel={
             state.dayOfCycle > state.cycleLength
               ? `Day ${state.dayOfCycle} of ${

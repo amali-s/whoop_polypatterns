@@ -82,11 +82,18 @@ export type CycleState =
   /** Zero explicit 'yes' days ever — nothing can honestly be shown. */
   | { kind: 'no-data' }
   /** A start date exists but no cycle length does — day count only, no denominator. */
-  | { kind: 'day-only'; dayOfCycle: number }
+  | { kind: 'day-only'; dayOfCycle: number; startDate: string }
   | {
       kind: 'full';
       dayOfCycle: number;
       cycleLength: number;
+      /**
+       * The latest episode's start = cycle day 1, so a caller can map a
+       * position in the meter back to the calendar day it stands for (which is
+       * what lets the tile colour each dot by that day's logged answer). Same
+       * ISO 'YYYY-MM-DD' as the logs it came from.
+       */
+      startDate: string;
       /** So the UI can label the denominator truthfully ("estimated" vs. what the user told us). */
       lengthSource: 'estimated' | 'user-reported';
     };
@@ -186,7 +193,13 @@ export function cycleState(
 
   const estimated = estimateCycleLength(episodes);
   if (estimated !== null) {
-    return { kind: 'full', dayOfCycle, cycleLength: estimated, lengthSource: 'estimated' };
+    return {
+      kind: 'full',
+      dayOfCycle,
+      cycleLength: estimated,
+      lengthSource: 'estimated',
+      startDate: latest.startDate,
+    };
   }
   if (typicalCycleLength != null && Number.isFinite(typicalCycleLength) && typicalCycleLength > 0) {
     return {
@@ -194,7 +207,8 @@ export function cycleState(
       dayOfCycle,
       cycleLength: typicalCycleLength,
       lengthSource: 'user-reported',
+      startDate: latest.startDate,
     };
   }
-  return { kind: 'day-only', dayOfCycle };
+  return { kind: 'day-only', dayOfCycle, startDate: latest.startDate };
 }
