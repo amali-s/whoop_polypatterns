@@ -1,5 +1,102 @@
 # Project state
 
+## Roadmap status (Task 5.7 — cycle-day meter wired to real journal data) — ✅ COMPLETE (every branch mock-verified in the browser; NOT live-verified against real journal rows) (2026-08-03)
+
+**The seam this closes**
+
+The period-meter tile had shown its `no-data` placeholder since 4.10 — caption
+"no data yet — the Phase 5 journal isn't built" — long after the journal
+shipped in 5.3. Two independent halves of one gap: `App.tsx` rendered
+`<PeriodMeterTile />` with no props (so `logs` defaulted to `[]` and
+`cycleState` returned `no-data` unconditionally), and `GET /api/journal` only
+served `?day=`, one row, while `cycleState` needs HISTORY — it recomputes
+episodes from the full log every time, by design, so retroactive edits can
+merge and split boundaries.
+
+**What's done**
+
+- **`api/journal.ts` — a range read**: `GET ?from=&to=` →
+  `200 { days: [{ day, period }] }`, ascending. Routed on WHICH params are
+  present; mixing `day` with `from`/`to`, or sending half a range, is a 400.
+  Selects **only `day, period`** (not `ANSWER_SELECT`) — a dot matrix has no
+  business receiving the user's notes, cramps and discharge. Span capped at
+  **400 days** server-side; inverted ranges rejected. NULL `period` serializes
+  as `null`, never `'no'`; unlogged days are absent, never synthesized. Cookie
+  `userId`, 503 `{ waking: true }` + `Retry-After: 5`, generic error bodies —
+  all the file's existing patterns verbatim. **No migration:** `unique
+(user_id, day)` from 0001 already indexes `(user_id, day)`.
+- **`src/hooks/usePeriodLogs.ts` (new)** — `useSleepStages`'s template line for
+  line: same four-state union, same `cancelled` flag on every `setState`, same
+  never-throw discipline. 100-day window ending today; returns `PeriodLog[]`
+  plus the window's lower bound.
+- **`src/lib/cycle.ts` — the clipped-episode guard** (`dropClippedEpisode`, and
+  an optional last parameter on `detectEpisodes` / `cycleState`; both existing
+  signatures still work). Still pure — zero imports, zero I/O.
+- **`src/lib/day.ts` (new)** — `localTodayISO` moved out of `App.tsx` (plus
+  `shiftDayISO`) so the hook shares one definition instead of copying it.
+- **`PeriodMeterTile`** — consumes the hook, drives `ChartContainer`'s status
+  from it, and carries corrected copy.
+- **Untouched, on purpose:** the POST path, `journal-types.ts`, the 5.4
+  reminder layer, `JournalSummary`. No schema change, no env var, no dependency.
+
+**The one judgment call worth reading: where the guard's boundary sits**
+
+A hard 100-day window can BISECT a period, and the first `'yes'` day inside it
+then looks like a cycle start without being one. With ~3 episodes there are
+only 2 gaps to average, so one fabricated start moves the estimate by days
+(measured in the preview: **32 unguarded vs. 29 guarded** on the same fixture).
+The oldest episode is dropped when its start can't be **proven** genuine, and
+the threshold is DERIVED from `detectEpisodes`' own rule rather than chosen:
+the nearest day the window could hide is `windowStart − 1`, which would join
+the episode iff `start − windowStart < EPISODE_GAP_DAYS`. So offset 0–2 is
+dropped and offset **exactly `EPISODE_GAP_DAYS` is kept** — a hidden `'yes'` 4
+days before a start already splits into its own episode. Same "> not ≥"
+boundary the grouping rule has. **`EPISODE_GAP_DAYS` itself is untouched.**
+Cost: at most one episode, and if the dropped one was the ONLY episode the
+meter falls back to `no-data` — deliberate, because an unprovable start yields
+a `dayOfCycle` that is wrong, not merely imprecise.
+
+**Verified (mock preview, 2026-08-03)**
+
+- Gates: `npm run build`, `npm run typecheck:api`, `npm run lint`,
+  `npm run test:cycle`, `npm run test:journal`, `npm run format:check` all pass;
+  `test:transforms` and `test:reminder` re-run clean.
+- `test-cycle.mjs` +4 cases (clipped episode dropped and the skew undone,
+  unclipped kept, the exact `EPISODE_GAP_DAYS` boundary both ways, only-episode
+  clipped → `no-data`, omitted argument → pre-5.7 behaviour).
+  `test-journal.mjs` +2 cases through the REAL handler with mocked PostgREST
+  (the `select=day,period` query, both bounds, the session `user_id`, NULL
+  staying null, and every 400 guard with no Supabase call made).
+- In-browser via a temporary `vite.config.ts` middleware mock (the 4.1/5.3/5.4
+  trick — **reverted afterwards, `git diff vite.config.ts` empty**): the hook
+  requests exactly `from=2026-04-26&to=2026-08-03` (100 inclusive days); 3
+  episodes → "Day 5 of 29", `lengthSource: 'estimated'`, 29 dots, matching
+  `<desc>`; 1 episode → text-only "Day 7", no dot row, no assumed 28; 0 → the
+  corrected no-data copy; 401 → "Connect your WHOOP account to see your cycle
+  day."; 500 → the error state; clipped fixture → 29, not the unguarded 32. No
+  console errors.
+
+**Still open / flagged**
+
+- **NOT live-verified.** Nothing has ever written a row to the real
+  `daily_questionnaire` from a logged-in browser (5.3's standing residual), so
+  the meter has never met a real logged period. Confirm on prod by logging
+  "Period: yes" on a couple of days — one episode gives text-only "Day _n_",
+  and the dot matrix only appears once a second episode ≥4 days later exists.
+- **`typicalCycleLength` is still unresolved and its TODO intact** — the
+  `user_settings` endpoint (ROADMAP 5.1 constraint 2) remains out of scope, so
+  `lengthSource: 'user-reported'` is unreachable in the UI.
+- **design.md §4 limitation #6 is still unsurfaced** — the TODO at the render
+  site stands: episode starts are inferred, so a >3-day spotting gap inside one
+  real period reads as a new cycle, and the manual "mark as new cycle start"
+  override remains a follow-up.
+
+**What needs human action**
+
+- **Nothing to apply** — no migration, no new table, no new index, no env var.
+- **Commit + push** (pushing `main` auto-deploys Vercel production), then do
+  the live check above.
+
 ## Roadmap status (Task 5.4 — journal reminders) — ✅ COMPLETE (in-tab only; every branch mock-verified in the browser, real notifications NOT verified) (2026-07-31)
 
 **What's done**
@@ -109,8 +206,8 @@ makes the reminder vanish immediately, browser-verified.
   fires.
 - Everything still open from 5.3 stands: no row has been written to the live
   `daily_questionnaire` yet, the once-only cycle-length prompt is unbuilt, the
-  period meter still renders `no-data`, and 5.2's desktop bento-layout question
-  is still your call.
+  period meter still renders `no-data` (**this one closed in 5.7**), and 5.2's
+  desktop bento-layout question is still your call.
 
 **What needs human action**
 
@@ -240,6 +337,8 @@ request.' }` that doesn't enumerate the rules; `day` must be a real calendar
   `period` field but nothing reads the history back yet — wiring
   `PeriodMeterTile`'s `logs` (and passing the cycle length UNRESOLVED) is the
   next step, and is what finally closes 4.10's residual.
+  **RESOLVED by 5.7 (2026-08-03)** — the range read + `usePeriodLogs` do exactly
+  that; the cycle length is indeed passed unresolved.
 - **5.2's desktop bento layout question is still open** — the journal tile is
   a 219×1651px column at ≥640px. Untouched here; still your call (cap +
   scroll, own full-width row, or out of the grid).

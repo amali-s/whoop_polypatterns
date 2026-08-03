@@ -2,8 +2,11 @@
 //
 // Pure date logic: zero imports, zero I/O — unit-tested by
 // scripts/test-cycle.mjs the same way api/_lib/transforms.ts is tested by
-// test-transforms.mjs. The data source (the Phase 5 daily journal's "Period"
-// field) does not exist yet; this module is built against its confirmed shape.
+// test-transforms.mjs. Built against the confirmed shape of the Phase 5 daily
+// journal's "Period" field; since 5.7 that data really flows, through
+// GET /api/journal?from=&to= → src/hooks/usePeriodLogs.ts → PeriodMeterTile.
+// The window that read uses is finite, which is what `dropClippedEpisode`
+// below exists to handle — this module still imports nothing and reads nothing.
 //
 // Cycle-start detection is INFERRED (design.md §4, CONFIRMED 2026-07-18): the
 // journal logs "Period: yes" one day at a time and never asks "is this day 1?",
@@ -31,6 +34,48 @@ export const EPISODE_GAP_DAYS = 3;
 export interface PeriodEpisode {
   startDate: string;
   days: string[];
+}
+
+/**
+ * Drop the oldest episode when a hard window boundary could have BISECTED it.
+ *
+ * The 5.7 read path fetches a fixed window (100 days) rather than the whole
+ * journal, so the log handed to `detectEpisodes` can begin part-way through a
+ * real period. The first 'yes' day inside the window then looks like a cycle
+ * start and is not one — the genuine start sits outside, unfetched. That one
+ * fabricated start corrupts the FIRST start-to-start gap, and with only ~3
+ * episodes in 100 days there are only 2 gaps, so a single bad one moves the
+ * mean `estimateCycleLength` reports by days.
+ *
+ * WHEN A START CANNOT BE PROVEN GENUINE. The nearest day the window could be
+ * hiding is `windowStart − 1`. That day joins this episode only if the gap to
+ * it is within the grouping rule:
+ *
+ *     start − (windowStart − 1) <= EPISODE_GAP_DAYS
+ *     ⇔ start − windowStart < EPISODE_GAP_DAYS
+ *
+ * So an offset of 0…EPISODE_GAP_DAYS−1 is UNPROVABLE (dropped) and an offset of
+ * exactly EPISODE_GAP_DAYS is PROVABLY genuine (kept): a hidden 'yes' at
+ * `windowStart − 1` would then be EPISODE_GAP_DAYS + 1 days away, which the
+ * `> EPISODE_GAP_DAYS` rule in `detectEpisodes` already splits into its own
+ * episode. Same "> not ≥" boundary as the grouping rule, derived from it rather
+ * than chosen separately — `EPISODE_GAP_DAYS` itself is untouched.
+ *
+ * Costs at most one episode. When the dropped one was the ONLY episode the
+ * caller is left with `no-data`, which is the honest outcome: an unprovable
+ * start would have produced a `dayOfCycle` that is simply wrong, not merely
+ * imprecise.
+ */
+export function dropClippedEpisode(
+  episodes: PeriodEpisode[],
+  windowStart: string,
+): PeriodEpisode[] {
+  const oldest = episodes[0];
+  if (oldest === undefined) {
+    return episodes;
+  }
+  const offset = dayNumber(oldest.startDate) - dayNumber(windowStart);
+  return offset < EPISODE_GAP_DAYS ? episodes.slice(1) : episodes;
 }
 
 export type CycleState =
@@ -66,8 +111,14 @@ function dayNumber(date: string): number {
  * distance between 'yes' days is). Always recomputes from the full history it
  * is given, never appends incrementally: a retroactive journal edit can merge,
  * split, or shift episode boundaries, and only a full pass gets that right.
+ *
+ * `windowStart` is OPT-IN and describes the caller's data, not a filter: pass
+ * the lower bound of the window `logs` was fetched over and a leading episode
+ * the boundary may have bisected is discarded (`dropClippedEpisode`). Omit it
+ * when `logs` is the complete history — nothing is clipped there, so nothing
+ * should be dropped.
  */
-export function detectEpisodes(logs: PeriodLog[]): PeriodEpisode[] {
+export function detectEpisodes(logs: PeriodLog[], windowStart?: string): PeriodEpisode[] {
   const yesDays = logs
     .filter((log) => log.period === 'yes')
     .map((log) => log.date)
@@ -86,7 +137,7 @@ export function detectEpisodes(logs: PeriodLog[]): PeriodEpisode[] {
     }
     previous = date;
   }
-  return episodes;
+  return windowStart === undefined ? episodes : dropClippedEpisode(episodes, windowStart);
 }
 
 /**
@@ -114,13 +165,19 @@ export function estimateCycleLength(episodes: PeriodEpisode[]): number | null {
  * Once ≥2 episodes exist the estimate is preferred over `typicalCycleLength`
  * (the once-asked Phase 5 value): measured history beats the remembered
  * answer, and `lengthSource` tells the UI which one it is looking at.
+ *
+ * `windowStart` is the OPTIONAL fourth argument, forwarded to
+ * `detectEpisodes` — pass the lower bound of the window `logs` came from so a
+ * boundary-bisected leading episode can't fake a cycle start (see
+ * `dropClippedEpisode`). Omitting it keeps the pre-5.7 behaviour exactly.
  */
 export function cycleState(
   logs: PeriodLog[],
   today: string,
   typicalCycleLength?: number | null,
+  windowStart?: string,
 ): CycleState {
-  const episodes = detectEpisodes(logs);
+  const episodes = detectEpisodes(logs, windowStart);
   if (episodes.length === 0) {
     return { kind: 'no-data' };
   }

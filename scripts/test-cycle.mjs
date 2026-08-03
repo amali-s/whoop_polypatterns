@@ -22,6 +22,13 @@
 //   * retroactive edits                      → full-history recompute merges/splits episodes
 //   * dayOfCycle > cycleLength (overdue)     → not clamped, not negative
 //   * a range spanning a DST boundary        → exact day count (UTC-normalized helper)
+//   * windowStart given (5.7):
+//       - a leading episode clipped by the window bound → DROPPED, and the
+//         estimate it was skewing is restored
+//       - a leading episode safely inside the window    → KEPT
+//       - the exact EPISODE_GAP_DAYS boundary           → kept at ==, dropped at <
+//       - the only episode being clipped                → 'no-data'
+//       - omitting the argument                         → pre-5.7 behaviour, unchanged
 //
 // All fixture dates are SYNTHETIC — no real personal health data.
 //
@@ -31,7 +38,7 @@
 // Node 24 strips the TypeScript types on import; cycle.ts is import-free so
 // it loads without a bundler.
 
-const { EPISODE_GAP_DAYS, detectEpisodes, estimateCycleLength, cycleState } =
+const { EPISODE_GAP_DAYS, detectEpisodes, dropClippedEpisode, estimateCycleLength, cycleState } =
   await import('../src/lib/cycle.ts');
 
 // ── Tiny assertion harness ───────────────────────────────────────────────────
@@ -232,6 +239,109 @@ check('day 15 across spring-forward', dst.kind === 'day-only' && dst.dayOfCycle 
 // Fall-back too: 2026-11-01. Start 10-25, today 11-08 → 8 + (31 − 25) + 1 = 15.
 const dstFall = cycleState([log('2026-10-25')], '2026-11-08');
 check('day 15 across fall-back', dstFall.kind === 'day-only' && dstFall.dayOfCycle === 15);
+
+// ── Case 14: windowStart — a clipped leading episode is dropped (5.7) ────────
+console.log('\nCase 14: leading episode clipped by the window bound');
+// The fetched window is [2026-01-01 … ]. Yes days inside it:
+//   01-02, 01-03  → episode A, start 01-02  ← starts 1 day into the window
+//   01-20         → episode B, start 01-20
+//   02-17         → episode C, start 02-17
+// A's start is UNPROVABLE: a 'yes' on 2025-12-31 (outside the window) is 2 days
+// before it, ≤ 3, so it would have belonged to the same episode and A's real
+// start would be earlier.
+const clipped = [log('2026-01-02'), log('2026-01-03'), log('2026-01-20'), log('2026-02-17')];
+const WINDOW = '2026-01-01';
+// Ungoverned: 3 episodes, gaps 18 (01-02 → 01-20) and 28 (01-20 → 02-17),
+// mean 23 — the clipped start drags the estimate down by 5 days.
+const clippedRaw = detectEpisodes(clipped);
+check('without windowStart: 3 episodes', clippedRaw.length === 3);
+check(
+  'without windowStart: estimate = 23 (round(46/2)) — skewed',
+  estimateCycleLength(clippedRaw) === 23,
+);
+// Guarded: A is discarded, leaving the one gap that was measured end to end.
+const clippedGuarded = detectEpisodes(clipped, WINDOW);
+check('with windowStart: 2 episodes (oldest dropped)', clippedGuarded.length === 2);
+check(
+  'the survivors start 01-20 and 02-17',
+  clippedGuarded[0].startDate === '2026-01-20' && clippedGuarded[1].startDate === '2026-02-17',
+);
+check('estimate restored to 28 (the one genuine gap)', estimateCycleLength(clippedGuarded) === 28);
+// cycleState's 4th argument forwards it. today 02-18: 18 − 17 + 1 = 2, and the
+// LATEST episode is untouched by the drop — only the denominator changes.
+const clippedState = cycleState(clipped, '2026-02-18', null, WINDOW);
+check(
+  "kind 'full', day 2 of 28, 'estimated'",
+  clippedState.kind === 'full' &&
+    clippedState.dayOfCycle === 2 &&
+    clippedState.cycleLength === 28 &&
+    clippedState.lengthSource === 'estimated',
+);
+// Same logs, no 4th argument → exactly the pre-5.7 answer (28 → 23).
+const clippedUnguarded = cycleState(clipped, '2026-02-18');
+check(
+  'omitting windowStart keeps the old behaviour (28 → 23)',
+  clippedUnguarded.kind === 'full' && clippedUnguarded.cycleLength === 23,
+);
+
+// ── Case 15: an UNCLIPPED leading episode is kept ────────────────────────────
+console.log('\nCase 15: leading episode safely inside the window');
+// Identical logs, window opened 2025-12-20 instead: A starts 13 days in, so no
+// hidden 'yes' day could have joined it — the start is genuine and stays.
+const roomy = detectEpisodes(clipped, '2025-12-20');
+check('all 3 episodes kept', roomy.length === 3);
+check('oldest is still 01-02', roomy[0].startDate === '2026-01-02');
+check('estimate unchanged at 23', estimateCycleLength(roomy) === 23);
+check(
+  'identical to the ungoverned result',
+  JSON.stringify(roomy) === JSON.stringify(detectEpisodes(clipped)),
+);
+
+// ── Case 16: the boundary at exactly EPISODE_GAP_DAYS ───────────────────────
+console.log('\nCase 16: boundary — offset of exactly EPISODE_GAP_DAYS');
+// The rule is derived from detectEpisodes' own "> EPISODE_GAP_DAYS", not
+// chosen separately: at offset EXACTLY 3, the nearest hidden day (windowStart −
+// 1) is 4 days before the start, which already splits into its own episode —
+// so the start is provable and the episode is KEPT. One day closer (offset 2)
+// and the hidden day would have merged, so it is DROPPED.
+const at3 = [{ startDate: '2026-01-04', days: ['2026-01-04'] }];
+const at2 = [{ startDate: '2026-01-03', days: ['2026-01-03'] }];
+check('offset === EPISODE_GAP_DAYS → kept', dropClippedEpisode(at3, WINDOW).length === 1);
+check('offset === EPISODE_GAP_DAYS − 1 → dropped', dropClippedEpisode(at2, WINDOW).length === 0);
+// Offset 0 (the window's first day itself) is the worst case, always dropped.
+check(
+  'offset 0 → dropped',
+  dropClippedEpisode([{ startDate: WINDOW, days: [WINDOW] }], WINDOW).length === 0,
+);
+// And through detectEpisodes, off real logs: same 4 vs. 3 day boundary.
+check(
+  'detectEpisodes: yes day 3 days in survives',
+  detectEpisodes([log('2026-01-04'), log('2026-01-25')], WINDOW).length === 2,
+);
+check(
+  'detectEpisodes: yes day 2 days in is dropped',
+  detectEpisodes([log('2026-01-03'), log('2026-01-25')], WINDOW).length === 1,
+);
+// Empty input is a no-op, not a crash.
+check('no episodes → unchanged', dropClippedEpisode([], WINDOW).length === 0);
+
+// ── Case 17: the ONLY episode is clipped → honest no-data ───────────────────
+console.log('\nCase 17: the only episode is the clipped one');
+// Dropping it costs the meter its whole answer — deliberately. An unprovable
+// start yields a dayOfCycle that is wrong, not merely imprecise.
+const onlyClipped = cycleState([log('2026-01-02'), log('2026-01-03')], '2026-01-10', null, WINDOW);
+check("kind 'no-data'", onlyClipped.kind === 'no-data');
+// Without the guard the same logs still read as day 9 (10 − 2 + 1).
+const onlyUnguarded = cycleState([log('2026-01-02'), log('2026-01-03')], '2026-01-10');
+check(
+  'unguarded, the same logs read as day 9',
+  onlyUnguarded.kind === 'day-only' && onlyUnguarded.dayOfCycle === 9,
+);
+// A user-reported length cannot resurrect it either: no episode, no start date.
+check(
+  'no-data even with a reported length',
+  cycleState([log('2026-01-02')], '2026-01-10', 30, WINDOW).kind === 'no-data',
+);
 
 console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

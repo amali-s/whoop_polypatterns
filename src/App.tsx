@@ -24,10 +24,14 @@ import {
   type StackedBarSeriesKey,
 } from './components/charts';
 import { cycleState, type PeriodLog } from './lib/cycle';
+// localTodayISO lived here through 5.4; it moved to src/lib/day.ts in 5.7 so
+// usePeriodLogs can share the one definition instead of copying it.
+import { localTodayISO } from './lib/day';
 import { HYDRATION_COLORS, HYDRATION_LABELS, HYDRATION_STATES } from './lib/hydration';
 import { recoveryZone } from './lib/recovery';
 import { baselineDelta, type BaselineDelta } from './lib/stats';
 import { useSleepStages } from './hooks/useSleepStages';
+import { usePeriodLogs, PERIOD_LOG_DAYS } from './hooks/usePeriodLogs';
 import { useJournalReminder } from './hooks/useJournalReminder';
 import type { JournalDayStatus } from './lib/reminder';
 import { useDailySeries, type DailySeriesState } from './hooks/useDailySeries';
@@ -963,51 +967,66 @@ function StrainRingTile({ series }: { series: DailySeriesState }) {
   );
 }
 
-/** Today as a local 'YYYY-MM-DD' — the calendar day the user is living in. */
-function localTodayISO(): string {
-  const now = new Date();
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-}
-
 /**
  * Bento period tile (§4: dot-matrix cycle-day meter; self-reported — the
- * WHOOP v2 API has no menstrual-cycle resource). PHASE 5 SEAM: when the daily
- * journal ships its tri-state "Period" field, pass the full log history (and
- * the once-asked typical cycle length) as props — the three cycleState kinds
- * below already render. Until then `logs` defaults to [] and the tile
- * honestly resolves to 'no-data'. No fetch happens here, so ChartContainer
- * stays in its default 'ready' status: per the 4.9 rule, 'empty' means
- * 401/no session, and a successful-but-dataless render is the component's
- * own no-data state.
+ * WHOOP v2 API has no menstrual-cycle resource).
+ *
+ * PHASE 5 SEAM — CLOSED (5.7, 2026-08-03). The tile now reads the journal's
+ * tri-state "Period" field itself, through `usePeriodLogs` → GET
+ * /api/journal?from=&to=, and hands the result straight to `cycleState`; the
+ * three kinds it renders are unchanged from 4.10. The window's lower bound
+ * goes along as `windowStart` so an episode the 100-day boundary bisected
+ * can't fake a cycle start (see `dropClippedEpisode`).
+ *
+ * It therefore performs I/O, and ChartContainer no longer sits at its default
+ * 'ready' — the status is driven from the fetch state per the 4.9 rule:
+ * 'empty' means 401/no session, 'error' means the fetch failed, and a
+ * successful-but-dataless response is NOT 'empty' but the component's own
+ * `no-data` render below.
+ *
+ * `typicalCycleLength` stays a prop and stays UNRESOLVED: the `user_settings`
+ * endpoint behind the once-asked value is still unbuilt (ROADMAP 5.1
+ * constraint 2), `cycleState` owns the precedence, and with ≥2 episodes the
+ * estimate wins over it anyway.
  */
-function PeriodMeterTile({
-  logs = [],
-  typicalCycleLength = null,
-}: {
-  logs?: PeriodLog[];
-  typicalCycleLength?: number | null;
-}) {
-  const state = cycleState(logs, localTodayISO(), typicalCycleLength);
+function PeriodMeterTile({ typicalCycleLength = null }: { typicalCycleLength?: number | null }) {
+  const periodLogs = usePeriodLogs();
+  const logs: PeriodLog[] = periodLogs.status === 'ready' ? periodLogs.logs : [];
+  const status: ChartStatus = periodLogs.status === 'unauthenticated' ? 'empty' : periodLogs.status;
+  const state = cycleState(
+    logs,
+    periodLogs.status === 'ready' ? periodLogs.today : localTodayISO(),
+    typicalCycleLength,
+    periodLogs.status === 'ready' ? periodLogs.windowStart : undefined,
+  );
   // TODO(design.md §4 limitation #6): once real journal data flows in, surface
   // the inference caveat in the UI — episode starts are inferred from daily
   // checkboxes, so a >3-day spotting gap inside one real period reads as a new
   // cycle. Don't ship silent inference; the manual "mark as new cycle start"
   // override remains a Phase 5+ enhancement.
   return (
-    <ChartContainer className="bento-period" title="Cycle day">
+    <ChartContainer
+      className="bento-period"
+      title="Cycle day"
+      status={status}
+      loadingLabel="Loading your cycle day…"
+      emptyMessage="Connect your WHOOP account to see your cycle day."
+      errorMessage="Couldn’t load your cycle day. Refresh to try again."
+    >
       {state.kind === 'no-data' && (
         // The 28-dot track is DECORATIVE continuity with the old placeholder
         // strip — every dot is track-colored, nothing is filled, and no cycle
         // length is being claimed; the desc/caption say why there's no data.
+        // Copy corrected in 5.7: the journal EXISTS now, so the honest reason
+        // is that no period day has been logged inside the fetched window.
         <DotMatrix
           total={28}
           filled={0}
           noData
           title="Cycle day"
-          desc="No data yet: cycle day comes from the daily journal's Period field, which isn't built yet (Phase 5)."
+          desc={`No period logged in the last ${PERIOD_LOG_DAYS} days — cycle day comes from the daily journal's Period field.`}
           valueLabel="—"
-          caption="no data yet — the Phase 5 journal isn't built"
+          caption={`no period logged in the last ${PERIOD_LOG_DAYS} days`}
         />
       )}
       {state.kind === 'day-only' && (

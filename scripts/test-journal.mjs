@@ -23,6 +23,14 @@
 //   * the write is an upsert on the (user_id, day) unique constraint —
 //     asserted against the real on_conflict/Prefer request supabase-js emits;
 //   * a malformed `day` is a 400 on both verbs;
+//   * THE 5.7 RANGE READ (`?from=&to=`): it is ROUTED on which params are
+//     present (mixing `day` with `from`/`to`, or half a range, is a 400, never
+//     a silent reinterpretation), it selects ONLY `day, period` — the user's
+//     notes/cramps/discharge never reach a chart's payload — it orders
+//     ascending and bounds both ends on the SESSION user_id, a NULL `period`
+//     stays `null` rather than becoming 'no', unlogged days are absent rather
+//     than synthesized, and an inverted or over-long span is a 400 (the cap
+//     that stops it being an unbounded history dump);
 //   * a paused/unreachable project (the documented HTTP 540, and the
 //     status-0 fetch sentinel) → 503 { waking: true } + Retry-After, with no
 //     internals in the body;
@@ -448,6 +456,128 @@ async function run() {
   check("error 'Method not allowed.'", d9.json?.error === 'Method not allowed.');
   check('Allow header lists GET, POST', d9.headers.allow === 'GET, POST');
   check('no Supabase call', calls.length === 0);
+
+  // ── Case 10: the 5.7 range read (?from=&to=). ─────────────────────────────
+  console.log('\nCase 10: GET ?from=&to= → { days: [{ day, period }] }');
+  // Three rows in the window, one of them with a NULL period (a day that was
+  // logged without answering the Period question).
+  arrange(() =>
+    jsonResponse([
+      { day: '2026-07-01', period: 'yes' },
+      { day: '2026-07-02', period: null },
+      { day: '2026-07-20', period: 'no' },
+    ]),
+  );
+  const r10 = await call({ url: '/api/journal?from=2026-07-01&to=2026-07-31' });
+  check('status 200', r10.status === 200);
+  check(
+    'body carries `days`, not `entry`',
+    Array.isArray(r10.json?.days) && !('entry' in r10.json),
+  );
+  check(
+    'rows in request order (ascending)',
+    r10.json.days.map((d) => d.day).join(',') === '2026-07-01,2026-07-02,2026-07-20',
+  );
+  check('TRI-STATE: NULL stays null, never "no"', r10.json.days[1].period === null);
+  check(
+    "'yes' and 'no' round-trip",
+    r10.json.days[0].period === 'yes' && r10.json.days[2].period === 'no',
+  );
+  check('unlogged days are ABSENT, not synthesized (3 rows in, 3 out)', r10.json.days.length === 3);
+  check(
+    'each row is EXACTLY { day, period }',
+    r10.json.days.every((d) => Object.keys(d).sort().join(',') === 'day,period'),
+  );
+
+  const read = calls[0];
+  check(
+    'one Supabase read, ascending by day',
+    calls.length === 1 && read.method === 'GET' && read.url.includes('order=day.asc'),
+  );
+  check(
+    'selects ONLY day,period — not the whole journal',
+    read.url.includes('select=day,period') &&
+      !read.url.includes('notes') &&
+      !read.url.includes('cramps'),
+  );
+  check('filters on the SESSION user_id', read.url.includes(`user_id=eq.${USER_ID}`));
+  check(
+    'bounds both ends of the range',
+    read.url.includes('day=gte.2026-07-01') && read.url.includes('day=lte.2026-07-31'),
+  );
+
+  // An empty window is a normal 200 with an empty array — never a 404.
+  arrange(() => jsonResponse([]));
+  const r10b = await call({ url: '/api/journal?from=2026-07-01&to=2026-07-31' });
+  check(
+    'no rows in the window → 200 { days: [] }',
+    r10b.status === 200 && Array.isArray(r10b.json?.days) && r10b.json.days.length === 0,
+  );
+
+  // ── Case 11: range routing and its guards. ────────────────────────────────
+  console.log('\nCase 11: range routing — mixed, malformed, inverted, over-long');
+  arrange(() => {
+    throw new Error('Supabase must not be called for a rejected range');
+  });
+  const x = async (url) => (await call({ url })).status;
+  check(
+    'day mixed with from/to → 400 (the day/days footgun)',
+    (await x(`/api/journal?day=${DAY}&from=2026-07-01&to=2026-07-31`)) === 400,
+  );
+  check(
+    'day mixed with from alone → 400',
+    (await x(`/api/journal?day=${DAY}&from=2026-07-01`)) === 400,
+  );
+  check('from without to → 400', (await x('/api/journal?from=2026-07-01')) === 400);
+  check('to without from → 400', (await x('/api/journal?to=2026-07-31')) === 400);
+  check('malformed bound → 400', (await x('/api/journal?from=07-01-2026&to=2026-07-31')) === 400);
+  check(
+    'impossible calendar bound → 400',
+    (await x('/api/journal?from=2026-02-30&to=2026-07-31')) === 400,
+  );
+  check(
+    'inverted range (to before from) → 400',
+    (await x('/api/journal?from=2026-07-31&to=2026-07-01')) === 400,
+  );
+  // MAX_RANGE_DAYS is 400 inclusive: 2025-01-01 → 2026-02-04 is exactly 400
+  // days, 2026-02-05 is 401.
+  check(
+    'a 401-day span → 400 (the unbounded-history cap)',
+    (await x('/api/journal?from=2025-01-01&to=2026-02-05')) === 400,
+  );
+  check('no Supabase call for any rejected range', calls.length === 0);
+
+  arrange(() => jsonResponse([]));
+  check(
+    'exactly MAX_RANGE_DAYS (400) is accepted',
+    (await x('/api/journal?from=2025-01-01&to=2026-02-04')) === 200,
+  );
+  check(
+    'from === to (a 1-day range) is accepted',
+    (await x('/api/journal?from=2026-07-01&to=2026-07-01')) === 200,
+  );
+
+  // The range read shares the endpoint's failure posture.
+  console.log('  (range read failure paths)');
+  arrange(() => jsonResponse({ message: 'Project paused' }, 540));
+  const r11 = await call({ url: '/api/journal?from=2026-07-01&to=2026-07-31' });
+  check(
+    'paused project → 503 waking + Retry-After',
+    r11.status === 503 && r11.json?.waking === true && r11.headers['retry-after'] === '5',
+  );
+  arrange(() => jsonResponse({ message: 'internal error', code: 'XX000' }, 500));
+  const r11b = await call({ url: '/api/journal?from=2026-07-01&to=2026-07-31' });
+  check(
+    'PostgREST 500 → flat generic 500',
+    r11b.status === 500 && r11b.json?.error === 'Failed to load journal history.',
+  );
+  check('range error leaks no internals', leaksNothing(r11b.raw));
+
+  arrange(() => {
+    throw new Error('Supabase must not be called without a session');
+  });
+  const r11c = await call({ url: '/api/journal?from=2026-07-01&to=2026-07-31', cookie: false });
+  check('no session cookie → 401, DB untouched', r11c.status === 401 && calls.length === 0);
 
   console.log(`\n${failures === 0 ? 'ALL PASS' : `${failures} CHECK(S) FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);

@@ -1,5 +1,6 @@
-// GET  /api/journal?day=YYYY-MM-DD   — read one day's journal entry
-// POST /api/journal { day, answers }  — create/replace that day's entry
+// GET  /api/journal?day=YYYY-MM-DD              — read one day's journal entry
+// GET  /api/journal?from=YYYY-MM-DD&to=YYYY-MM-DD — read a DAY/PERIOD range
+// POST /api/journal { day, answers }             — create/replace that day's entry
 //
 // The storage half of Phase 5 (5.3): the daily questionnaire's read/write path
 // against `public.daily_questionnaire` (0004), keyed by (user_id, day). The
@@ -25,16 +26,41 @@
 //   the wrong TYPE is a 400 rather than something coerced into a shape the DB
 //   would accept. The form validates client-side already; this does not trust it.
 //
+// THE RANGE READ (Phase 5.7 — closing the period-meter seam):
+//   `?from=&to=` is a SECOND, deliberately narrow GET shape: it returns
+//   `{ day, period }` and nothing else, because its consumer is the cycle-day
+//   dot matrix (src/hooks/usePeriodLogs.ts → src/lib/cycle.ts), which needs
+//   HISTORY — `cycleState` recomputes episodes from the whole log every time by
+//   design. The form's single-day read still gets ANSWER_SELECT; a chart has no
+//   business receiving the user's notes, cramps and discharge as well.
+//
+//   Named `from`/`to` rather than `?days=N` ON PURPOSE: the single-day param is
+//   `?day=`, and a `day` vs. `days` pair differing by one letter is a footgun
+//   where a typo silently changes which contract you get. The two shapes are
+//   ROUTED on which params are present and MIXING them is a 400, so a request
+//   is never quietly reinterpreted as the other kind.
+//
+//   The span is capped server-side (MAX_RANGE_DAYS) so the endpoint can't be
+//   turned into an unbounded history dump, and rows for days that were never
+//   logged are simply ABSENT — no placeholder days are synthesized (unlike
+//   /api/daily-series, which emits a point per day for axis continuity). A
+//   stored NULL `period` serializes as `null`, never 'no': the tri-state is the
+//   0004 migration's hard constraint and cycle.ts reads the difference.
+//
 // Responses (always JSON):
-//   200 { entry: JournalAnswers | null }        — GET; `null` = no entry for
-//       that day yet, which is a normal state, not a 404
+//   200 { entry: JournalAnswers | null }        — GET ?day=; `null` = no entry
+//       for that day yet, which is a normal state, not a 404
+//   200 { days: [{ day, period }] }             — GET ?from=&to=; ascending by
+//       day, only days that have a row, `period` may be null
 //   200 { entry: JournalAnswers }               — POST; the row as saved
-//   400 { error: 'Invalid request.' }           — bad/absent day, bad answers
+//   400 { error: 'Invalid request.' }           — bad/absent day, bad answers,
+//       bad/inverted/over-long range, or `day` mixed with `from`/`to`
 //   401 { error: 'Not authenticated.' }         — no/invalid session cookie
 //   405 { error: 'Method not allowed.' }        — not GET or POST
 //   503 { waking: true } (+ Retry-After)        — database unavailable, likely
 //       the paused/waking free-tier Supabase project (Phase 2.5)
-//   500 { error: 'Failed to load journal entry.' | 'Failed to save journal entry.' }
+//   500 { error: 'Failed to load journal entry.' | 'Failed to load journal history.'
+//              | 'Failed to save journal entry.' }
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { SESSION_COOKIE, decodeSession } from './_lib/tokens.js';
@@ -75,6 +101,15 @@ const ANSWER_COLUMNS = [
 ] as const;
 
 const ANSWER_SELECT = ANSWER_COLUMNS.join(', ');
+
+/** The range read's projection — the two columns the cycle-day meter needs and
+ * no more (see THE RANGE READ in the header). Deliberately NOT ANSWER_SELECT. */
+const PERIOD_SELECT = 'day, period';
+
+/** Widest `from`→`to` span accepted, in days (inclusive of both bounds). A
+ * ceiling, not the client's window: usePeriodLogs asks for 100. It exists so a
+ * hand-made request can't ask for every row the member has ever written. */
+const MAX_RANGE_DAYS = 400;
 
 /** Largest JSON body accepted, in bytes. `notes` is free text and `extra` is
  * an untyped jsonb escape hatch, so the payload needs a ceiling that isn't the
@@ -119,6 +154,19 @@ function isValidDay(value: unknown): value is string {
   }
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * Inclusive day count from `from` to `to` — 1 when they are the same day.
+ * Both arguments have passed `isValidDay`, so the UTC parse is exact: UTC has
+ * no DST, every day is 86_400_000 ms, and the division cannot truncate off by
+ * one the way local-midnight Dates do (src/lib/cycle.ts's `dayNumber`).
+ * Negative when the range is inverted, which the caller rejects.
+ */
+function spanDays(from: string, to: string): number {
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  return (end - start) / 86_400_000 + 1;
 }
 
 /**
@@ -291,10 +339,111 @@ function toAnswers(row: Record<string, unknown>): JournalAnswers {
   };
 }
 
-/** GET — the day's entry, or `null` when it has never been filled in. */
+/** One day of period history as the range read serializes it. */
+interface PeriodDay {
+  day: string;
+  /** Tri-state, preserved verbatim: `null` = NOT LOGGED, never 'no'. */
+  period: PeriodAnswer | null;
+}
+
+/**
+ * Project a `PERIOD_SELECT` row onto the response shape. `period` passes
+ * through untouched apart from `undefined` → `null` (a column PostgREST
+ * omitted): the one transformation this function must NEVER do is turn a NULL
+ * into 'no' — see the tri-state section of 0004's header and PeriodAnswer in
+ * journal-types.ts.
+ */
+function toPeriodDay(row: Record<string, unknown>): PeriodDay {
+  return {
+    day: String(row.day),
+    period: (row.period ?? null) as PeriodAnswer | null,
+  };
+}
+
+/**
+ * GET ?from=&to= — the member's `{ day, period }` rows across an inclusive
+ * date range, ascending. Days with no row are ABSENT from the array (the
+ * caller's cycle detection treats "not logged" and "logged 'no'" identically,
+ * so a synthesized placeholder would add nothing but a lie about what was
+ * asked). Index: `unique (user_id, day)` from 0001 already gives this scan its
+ * btree on `(user_id, day)` — no migration was needed for this endpoint.
+ */
+async function handleRange(
+  res: ServerResponse,
+  userId: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  try {
+    const supabase = getSupabaseAdmin();
+    const { data, error, status } = await supabase
+      .from(TABLE)
+      .select(PERIOD_SELECT)
+      // user_id comes from the session cookie, never the request.
+      .eq('user_id', userId)
+      .gte('day', from)
+      .lte('day', to)
+      .order('day', { ascending: true });
+
+    if (error) {
+      if (isDbUnavailableStatus(status)) {
+        throw new DatabaseUnavailableError(status);
+      }
+      throw new Error(`Failed to read ${TABLE}: ${error.message}`);
+    }
+
+    // Same cast caveat as the single-day read: PERIOD_SELECT names exactly
+    // these two columns, which the untyped client can't prove.
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
+    json(res, 200, { days: rows.map(toPeriodDay) });
+  } catch (err) {
+    if (err instanceof DatabaseUnavailableError) {
+      console.error(`Journal history read: database unavailable (status ${err.status}).`);
+      res.setHeader('Retry-After', '5');
+      json(res, 503, { waking: true });
+      return;
+    }
+    console.error('Journal history read failed:', err);
+    json(res, 500, { error: 'Failed to load journal history.' });
+  }
+}
+
+/**
+ * GET — routed on WHICH params are present, never on their values: `day` alone
+ * is the form's single-day read, `from`+`to` is the range read, and anything
+ * else (both kinds at once, half a range, neither) is a 400 rather than a
+ * guess. See THE RANGE READ in the header for why the names differ this much.
+ */
 async function handleGet(req: IncomingMessage, res: ServerResponse, userId: string): Promise<void> {
   const url = new URL(req.url ?? '', 'http://localhost');
   const day = url.searchParams.get('day');
+  const from = url.searchParams.get('from');
+  const to = url.searchParams.get('to');
+
+  const wantsRange = from !== null || to !== null;
+  if (day !== null && wantsRange) {
+    // `day` and `days`-style params one letter apart is exactly the confusion
+    // this endpoint refuses to resolve silently.
+    json(res, 400, { error: 'Invalid request.' });
+    return;
+  }
+  if (wantsRange) {
+    if (!isValidDay(from) || !isValidDay(to)) {
+      json(res, 400, { error: 'Invalid request.' });
+      return;
+    }
+    const span = spanDays(from, to);
+    // Inverted (`to` before `from`) and over-long spans are both malformed
+    // requests, not empty results — the cap is what keeps this from being an
+    // unbounded history dump.
+    if (span < 1 || span > MAX_RANGE_DAYS) {
+      json(res, 400, { error: 'Invalid request.' });
+      return;
+    }
+    await handleRange(res, userId, from, to);
+    return;
+  }
+
   if (!isValidDay(day)) {
     json(res, 400, { error: 'Invalid request.' });
     return;
