@@ -30,11 +30,12 @@ import type { PeriodLog } from './cycle';
 // (1.15:1) are both far under 3:1 on the white card, and --color-chart-4
 // (#d9e3f0) is 10/255 in ONE channel away from --color-border (#cfe3f0) — as
 // fills alone, a "no period" day and a day that hasn't happened are the same
-// pixel. So every dot the cycle has REACHED wears the `--color-muted` hairline
+// pixel. So reached 'no' / 'unlogged' dots wear the `--color-muted` hairline
 // (the hydration-matrix precedent, which is what carries chart-1 and
-// --color-border past 3:1 there), and future dots wear none: the outline, not
-// the fill, is what separates them. The caption and <desc> then carry the
-// counts as real text, so hue is never the only channel.
+// --color-border past 3:1 there), 'yes' is fill-only, and future dots wear
+// none: the outline, not the fill, is what separates 'no' from future. The
+// caption and <desc> then carry the counts as real text, so hue is never the
+// only channel.
 
 /** One dot's meaning. Ordered as the legend/caption reads them. */
 export type PeriodDotState = 'yes' | 'no' | 'unlogged' | 'future';
@@ -58,7 +59,7 @@ export const PERIOD_DOT_LABELS: Record<PeriodDotState, string> = {
 /** How a dot is drawn, index-aligned to the row. */
 export interface PeriodDotStyle {
   fill: string;
-  /** Hairline outline — present on every day the cycle has reached. */
+  /** Hairline outline — present on reached 'no' / 'unlogged' days (not 'yes'). */
   outlined: boolean;
   /** Dashed variant of that outline: "the journal wasn't filled in". */
   dashed: boolean;
@@ -105,10 +106,10 @@ export function periodDotStates(
 export function periodDotStyles(states: readonly PeriodDotState[]): PeriodDotStyle[] {
   return states.map((state) => ({
     fill: PERIOD_DOT_COLORS[state],
-    // Future dots stay bare — that outline is the only reliable separator
-    // between an answered "no period" and a day that hasn't happened (see the
-    // contrast note at the top).
-    outlined: state !== 'future',
+    // 'yes' is fill-only. Future dots stay bare; 'no' / 'unlogged' keep the
+    // hairline so an answered "no period" still separates from a day that
+    // hasn't happened (see the contrast note at the top).
+    outlined: state === 'no' || state === 'unlogged',
     dashed: state === 'unlogged',
   }));
 }
