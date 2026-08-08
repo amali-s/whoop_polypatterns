@@ -148,7 +148,9 @@
   font-family: var(--font-display);
   font-size: var(--text-sm);
   font-weight: var(--weight-bold);
-  color: var(--color-text);
+  /* 6.2a: was --color-text. #4b5459 — 7.74:1 on white, ~7.1:1 on the glass
+   * tile — both clear §1's 4.5:1 bar. Token defined in index.css §1. */
+  color: var(--color-chart-header);
 }
 
 .ui-chart-subtitle {
@@ -327,7 +329,12 @@
   transform: translateX(calc(var(--thumb-index) * (100% + var(--space-1))));
   border: 1px solid var(--color-accent-strong);
   border-radius: var(--radius-pill);
-  background: var(--color-accent);
+  /* 6.2a (2026-08-08): pale --color-toggle-active (#c9eeff), was --color-accent.
+   * The fill is only 1.22:1 on the white track, so the --color-accent-strong
+   * border above is what bounds the segment — 6.4:1 on the track, 5.2:1 on this
+   * fill — and it still reads cleanly against #c9eeff. The selected label flips
+   * to dark text to stay legible on the pale fill (.range-toggle-option-selected). */
+  background: var(--color-toggle-active);
   box-shadow: var(--shadow-inset-gloss);
   pointer-events: none;
   transition: transform 260ms ease-in-out;
@@ -381,10 +388,14 @@
  * is the label color that sits ON that fill. Selection is still additionally
  * conveyed by aria-checked, so this is not a color-only signal. */
 .range-toggle-option-selected {
-  color: var(--color-surface);
+  /* Dark label on the pale --color-toggle-active thumb (6.2a): white text on
+   * #c9eeff would be ~1.3:1. --color-text (#0f2b3d) is 11.97:1 on that fill —
+   * comfortably past §1's 4.5:1 bar. Figma's toggle labels the selected segment
+   * #1b2323; --color-text is the repo's existing near-equivalent dark token. */
+  color: var(--color-text);
 
   &:hover {
-    color: var(--color-surface);
+    color: var(--color-text);
   }
 }
 

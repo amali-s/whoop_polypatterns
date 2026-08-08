@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import './App.css';
-import { checkSessionWithRetry, type SessionStatus } from './session-check';
+import { checkSessionWithRetry } from './session-check';
 import { Card } from './components/Card';
 import { Button } from './components/Button';
 import { RangeToggle, type RangeToggleOption } from './components/RangeToggle';
@@ -105,16 +105,18 @@ const SLEEP_STAGE_KEYS: StackedBarSeriesKey<SleepStageBreakdownPoint>[] = [
   { key: 'awakeMinutes', label: 'Awake', color: 'var(--color-sleep-awake)' },
 ];
 
-const SLEEP_STAGE_DAYS = 30;
-
 /**
- * Full-width stacked-bar row below the bento grid (design.md §2 "Layout gap"
- * decision: Phase 4 charts without a bento slot get their own rows at the
- * dashboard's 1200px column width). Drives ChartContainer's status from the
- * fetch state (4.8 wiring for this tile).
+ * Stacked-bar sleep-stage tile. A bento grid tile since 6.2a — the Figma tablet
+ * and desktop frames fold it into the grid (`bento-sleepstages`), where it used
+ * to render as a full-width sibling below the grid.
+ *
+ * WIRED TO THE RANGE TOGGLE (6.2a §3): `useSleepStages` already keys its fetch
+ * on `days`, so passing the app's live `rangeDays` makes the 1-month/3-month
+ * toggle drive this tile like every other range-driven one. It was pinned at a
+ * fixed 30 nights before — the toggle silently didn't move it.
  */
-function SleepStagesTile() {
-  const stages = useSleepStages(SLEEP_STAGE_DAYS);
+function SleepStagesTile({ rangeDays }: { rangeDays: RangeDays }) {
+  const stages = useSleepStages(rangeDays);
   const points = stages.status === 'ready' ? stages.points : [];
   const status: ChartStatus =
     stages.status === 'unauthenticated' || (stages.status === 'ready' && points.length === 0)
@@ -123,15 +125,16 @@ function SleepStagesTile() {
   return (
     <ChartContainer
       title="Sleep stages per night"
-      subtitle={`Awake, light, deep and REM minutes — last ${SLEEP_STAGE_DAYS} nights`}
+      subtitle={`Awake, light, deep and REM minutes — last ${rangeDays} nights`}
       status={status}
       loadingLabel="Loading your sleep stages…"
       emptyMessage={
         stages.status === 'unauthenticated'
           ? 'Connect your WHOOP account to see your sleep stages.'
-          : `No sleep data in the last ${SLEEP_STAGE_DAYS} nights — run a sync, then refresh.`
+          : `No sleep data in the last ${rangeDays} nights — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load sleep stages. Refresh to try again."
+      className="bento-sleepstages"
     >
       <StackedBarChart
         data={points}
@@ -139,7 +142,7 @@ function SleepStagesTile() {
         day={(p) => p.day}
         total={(p) => p.totalMinutes}
         title="Sleep stages per night"
-        tableCaption={`Sleep stage minutes per night, last ${SLEEP_STAGE_DAYS} nights`}
+        tableCaption={`Sleep stage minutes per night, last ${rangeDays} nights`}
         unit="minutes"
       />
     </ChartContainer>
@@ -239,6 +242,7 @@ function RecoveryStrainTile({
           : `No recovery or strain data in the last ${rangeDays} days — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load recovery and strain. Refresh to try again."
+      className="bento-recstrain"
     >
       <RecoveryStrainComboChart
         data={points}
@@ -455,6 +459,7 @@ function HydrationRecoveryTile({
           : `No recovery or journal data in the last ${rangeDays} days — run a sync and log a day, then refresh.`
       }
       errorMessage="Couldn’t load hydration and recovery. Refresh to try again."
+      className="bento-hydration"
       legend={
         /* Three entries, one per hydration state — hue is the hydration channel
            now, so the legend explains hue and nothing else. Recovery is NOT in
@@ -1380,7 +1385,6 @@ function clearOAuthErrorParams(): void {
 
 function App() {
   const [state, setState] = useState<ConnectionState>('loading');
-  const [session, setSession] = useState<SessionStatus | null>(null);
   // True when the waking-retry budget ran out without ever reaching the
   // server/database — used to explain the disconnected screen honestly.
   const [unreachable, setUnreachable] = useState(false);
@@ -1472,7 +1476,9 @@ function App() {
         return;
       }
       if (outcome.kind === 'connected') {
-        setSession(outcome.session);
+        // Member ID / Scopes are no longer displayed (task 6.2a §5), and
+        // nothing else reads the session payload, so it is not stored — the
+        // 'connected' STATE is all the UI needs.
         setState('connected');
         return;
       }
@@ -1543,61 +1549,52 @@ function App() {
           </div>
         )}
 
-        <Card
-          as="section"
-          padding="lg"
-          radius="xl"
-          className="auth-card"
-          aria-busy={state === 'loading' || state === 'waking'}
-        >
-          {/* Head row (2026-08-01): the heading on the left, the Connect
-              action pinned top-right. The action's CONDITION is unchanged —
-              it renders only while disconnected, never when WHOOP is already
-              linked; only its position moved out of the body below. */}
-          <div className="auth-card-head">
-            <h2>Connection</h2>
-            {state === 'disconnected' && (
-              // Top-level redirect (302 flow), not a fetch — a real navigation.
-              <Button variant="primary" size="sm" href="/api/auth">
-                Connect WHOOP
-              </Button>
-            )}
-          </div>
-
-          {state === 'loading' && <LoadingState label="Checking your connection…" />}
-
-          {state === 'waking' && (
-            <LoadingState label="Waking up your database — free-tier projects doze off when idle. Retrying for up to 30 seconds…" />
-          )}
-
-          {state === 'disconnected' && (
-            <>
-              {unreachable && (
-                <ErrorState message="We couldn’t reach your database. Free-tier Supabase projects pause after about a week of inactivity and have to be resumed from the Supabase dashboard — resume it there, then refresh this page." />
+        {/* 6.2a §5: the auth card renders ONLY while NOT connected. It still
+            owns the Connect CTA plus the loading / waking / disconnected copy
+            and the database-unreachable error. Once connected there is nothing
+            left for it to say — Member ID / Scopes were dropped, and the
+            header's status-chip already shows the live connection state — so the
+            whole Card is omitted rather than left as an empty shell. */}
+        {state !== 'connected' && (
+          <Card
+            as="section"
+            padding="lg"
+            radius="xl"
+            className="auth-card"
+            aria-busy={state === 'loading' || state === 'waking'}
+          >
+            {/* Head row (2026-08-01): the heading on the left, the Connect
+                action pinned top-right. The action renders only while
+                disconnected; its position moved out of the body below. */}
+            <div className="auth-card-head">
+              <h2>Connection</h2>
+              {state === 'disconnected' && (
+                // Top-level redirect (302 flow), not a fetch — a real navigation.
+                <Button variant="primary" size="sm" href="/api/auth">
+                  Connect WHOOP
+                </Button>
               )}
-              {/* The Connect button used to sit HERE, under this line; it is
-                  now in the head row above (2026-08-01). Same condition, same
-                  href, same 302 flow — only the position changed. */}
-              <p className="muted">Connect your WHOOP account to pull in your data.</p>
-            </>
-          )}
+            </div>
 
-          {state === 'connected' && session && (
-            <>
-              <p className="status">
-                <span className="dot" aria-hidden="true" />
-                Connected to WHOOP
-              </p>
-              <dl className="meta">
-                <dt>Member ID</dt>
-                <dd>{session.userId}</dd>
-                <dt>Scopes</dt>
-                <dd>{session.scope ?? '—'}</dd>
-              </dl>
-              {/* Disconnect moved to the header (task 3.2) — one action, not two. */}
-            </>
-          )}
-        </Card>
+            {state === 'loading' && <LoadingState label="Checking your connection…" />}
+
+            {state === 'waking' && (
+              <LoadingState label="Waking up your database — free-tier projects doze off when idle. Retrying for up to 30 seconds…" />
+            )}
+
+            {state === 'disconnected' && (
+              <>
+                {unreachable && (
+                  <ErrorState message="We couldn’t reach your database. Free-tier Supabase projects pause after about a week of inactivity and have to be resumed from the Supabase dashboard — resume it there, then refresh this page." />
+                )}
+                {/* The Connect button used to sit HERE, under this line; it is
+                    now in the head row above (2026-08-01). Same condition, same
+                    href, same 302 flow — only the position changed. */}
+                <p className="muted">Connect your WHOOP account to pull in your data.</p>
+              </>
+            )}
+          </Card>
+        )}
 
         {/* 4.14 time-range toggle. Placed in the 1200px MAIN COLUMN, as shell
             content beside the OAuth banner and auth card — deliberately NOT
@@ -1633,11 +1630,18 @@ function App() {
           <HrvBaselineTile series={dailySeries} rangeDays={rangeDays} />
 
           <RhrBaselineTile series={dailySeries} rangeDays={rangeDays} />
-        </section>
 
-        <SleepStagesTile />
-        <RecoveryStrainTile series={dailySeries} rangeDays={rangeDays} />
-        <HydrationRecoveryTile series={dailySeries} rangeDays={rangeDays} />
+          {/* Folded into the grid in 6.2a — these three used to render as
+              full-width siblings below .bento-grid; both confirmed Figma frames
+              place them as grid tiles (design.md §2). DOM order is unchanged, so
+              the mobile reading order and the tablet/desktop grid-template-areas
+              stay in agreement. */}
+          <SleepStagesTile rangeDays={rangeDays} />
+
+          <RecoveryStrainTile series={dailySeries} rangeDays={rangeDays} />
+
+          <HydrationRecoveryTile series={dailySeries} rangeDays={rangeDays} />
+        </section>
       </main>
     </>
   );

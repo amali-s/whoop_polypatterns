@@ -20,15 +20,26 @@
       under /public and declaring @font-face locally removes the request
       entirely and is a drop-in swap if preferred.
 
-      Only 400/500/700 are requested — the weights --weight-regular/-medium/
+      Roboto requests only 400/500/700 — the weights --weight-regular/-medium/
       -bold actually use. `display=swap` renders in the fallback face
       immediately rather than blocking on the download.
+
+      SPECTRAL (6.2a, 2026-08-08) — the body face (--font-sans). Added to the
+      SAME single stylesheet request rather than a second <link>, so it is not a
+      new third-party HOST, but it IS a second face fetched from Google Fonts:
+      the identical privacy trade-off flagged above for Roboto applies (the
+      visitor's IP reaches fonts.googleapis.com / fonts.gstatic.com), and
+      self-hosting both woff2 families under /public is the same drop-in
+      alternative if that's unwanted. Only 400 and 600 are requested — the two
+      weights --font-sans consumers render (400 for inputs and chart axis
+      labels, 600 for buttons / toggle / journal chips). Spectral is a serif;
+      the headline numerals and headings stay on Roboto (--font-display).
     -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Spectral:wght@400;600&display=swap"
     />
     <title>whoop-polypatterns</title>
   </head>

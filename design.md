@@ -95,6 +95,26 @@
 > Fixing 1-3 (a darker green, restoring selected outlines, or a `--color-muted`
 > field border) is a one-token change in each case if the trade turns out wrong.
 
+> **2026-08-08 — task 6.2a added two tokens** (desktop/tablet breakpoints +
+> token pass). Ratios computed WCAG 2.x, same method as above.
+>
+> - **`--color-chart-header` `#4b5459`** — the chart-tile title color
+>   (`.ui-chart-title` only; `--color-text` is unchanged). **7.74:1 on white,
+>   ~7.10:1 on the translucent tile** — clears the 4.5:1 text bar comfortably
+>   (down from `--color-text`'s ~13:1, still a strong pass). Sourced from the
+>   confirmed Figma frames (nodes `148:144` / `154:35`). **FLAGGED** — the
+>   frame's bound "Text secondary" variable actually resolves to `#59554b`, and
+>   `#4b5459` (the task's stated value) looks byte-transposed from it. Shipped
+>   as specified; swap to `#59554b` if the Figma variable is the intended value.
+> - **`--color-toggle-active` `#c9eeff`** — the RangeToggle selected-segment
+>   fill (was `--color-accent`). A pale near-white: **1.22:1 on the white
+>   track**, so the segment is bounded by its 1px `--color-accent-strong`
+>   border (6.42:1 on the track, 5.25:1 on the fill), **not** by fill luminance —
+>   the border still reads cleanly against the new light fill. The selected
+>   label moved off white (`--color-surface`, ~1.3:1 on this fill — would have
+>   failed badly) to `--color-text`, **11.97:1 on the fill** (see §5). Selection
+>   is additionally carried by `aria-checked`, so neither is a color-only signal.
+
 | Token                         | Value                   | Usage                                                                                |
 | ----------------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
 | `--color-bg`                  | `#e8f3fb`               | App background (airy sky-tinted)                                                     |
@@ -110,6 +130,8 @@
 | `--color-negative`            | `#c93848`               | Bad / below target (coral red) — 5.07:1 surface, 4.50:1 bg                           |
 | `--color-warning`             | `#f5a623`               | Caution / attention (warm amber) — **fills/dots only, 2.03:1**                       |
 | `--color-warning-text`        | `#946200`               | Warning-toned text — 5.24:1 surface, 4.65:1 bg (added 3.4)                           |
+| `--color-chart-header`        | `#4b5459`               | Chart-tile title (`.ui-chart-title` only) — 7.74:1 white, ~7.1:1 tile (added 6.2a)   |
+| `--color-toggle-active`       | `#c9eeff`               | RangeToggle selected-segment fill — 1.22:1 track, border-delineated (added 6.2a)     |
 
 ### Colors — glossy / glass treatment
 
@@ -234,11 +256,32 @@ imported and are dropped.
   a health dashboard that may not be acceptable; self-hosting the two woff2
   files under `/public` with a local `@font-face` is a drop-in swap.
 
-| Token            | Value                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------ |
-| `--font-sans`    | `'Nunito Sans', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif` |
-| `--font-display` | `Roboto, 'Segoe UI', system-ui, -apple-system, sans-serif` (headings — 2026-08-01)         |
-| `--font-mono`    | `ui-monospace, 'SFMono-Regular', 'Cascadia Code', Consolas, monospace`                     |
+**BODY FACE = Spectral — task 6.2a, 2026-08-08.** `--font-sans` now leads with
+Spectral (a Google Fonts **serif**), loaded from the **same single** Google
+Fonts `<link>` as Roboto (`family=Roboto:…&family=Spectral:wght@400;600`,
+`display=swap`) — one request, no new third-party host.
+
+- **Scope, flagged.** `--font-sans` is **not** the globally-inherited body font —
+  that is the legacy `--sans` token in the `:root` `font:` shorthand, which is
+  untouched. `--font-sans` is read only by the component primitives (`.ui-btn`,
+  `.ui-input`/`-select`/`-textarea`, `.range-toggle-option`, `.journal-choice`)
+  and the chart **axis tick labels** (`.chart-axis text`). So Spectral lands on
+  exactly those, at the two weights they render — **400** (inputs, axis labels)
+  and **600** (buttons, toggle, chips), which is the weight set requested. The
+  headline numerals and card titles read `--font-display` (Roboto) and are
+  **unaffected**. If ALL inherited body copy should also be Spectral, `--sans`
+  needs repointing too — wider than this task.
+- **Fallback.** The stack keeps its existing pattern per the task, so it
+  degrades to a **sans** face (not a serif) during the swap period; a serif
+  fallback (e.g. Georgia) would preserve the serif character if preferred.
+- **Same privacy trade-off** as Roboto (a second face from the same Google Fonts
+  hosts); self-hosting both woff2 families is the same drop-in alternative.
+
+| Token            | Value                                                                                                          |
+| ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| `--font-sans`    | `Spectral, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif` (body/primitives — 6.2a) |
+| `--font-display` | `Roboto, 'Segoe UI', system-ui, -apple-system, sans-serif` (headings — 2026-08-01)                             |
+| `--font-mono`    | `ui-monospace, 'SFMono-Regular', 'Cascadia Code', Consolas, monospace`                                         |
 
 | Scale token   | Size | Typical use                  |
 | ------------- | ---- | ---------------------------- |
@@ -333,7 +376,21 @@ full-width rows **below** it for these 4 charts, each in its own
 the 640px-capped bento cluster). Order: stacked bar (sleep stages) → recovery
 calendar → sleep performance → strain matrix.
 
+> **SUPERSEDED for the three shipped below-grid tiles — task 6.2a
+> (2026-08-08).** The confirmed desktop/tablet Figma frames give Sleep stages,
+> Recovery-vs-strain and Hydration-vs-recovery real grid slots, so they are no
+> longer full-width siblings below `.bento-grid` — they are now grid tiles
+> (`bento-sleepstages` / `bento-recstrain` / `bento-hydration`). DOM order is
+> unchanged (they still follow RHR in reading order), so mobile stacking is
+> identical. See "Desktop / tablet breakpoints" below.
+
 ### Dashboard grid & breakpoints — bento (revised)
+
+> **SUPERSEDED 2026-08-08 (task 6.2a).** The single "tablet+ ≥640px" 3-column
+> layout below was replaced by two real breakpoints (tablet 640–1023, desktop
+> ≥1024) from dedicated Figma frames, and all 12 tiles now live in the grid.
+> The record below is kept as history; the current layout is in **"Desktop /
+> tablet breakpoints — task 6.2a"** further down.
 
 **Superseded the earlier uniform 6-card `1fr` grid.** The confirmed Figma
 frame (node `86:71`) is an asymmetric bento layout, not equal tiles, and
@@ -376,6 +433,82 @@ specifies a desktop/tablet variant).
   currently reserve fixed heights (128px / 64px) — placeholder values, not a
   Phase 4 chart-sizing decision; real D3 charts will size responsively.
 
+### Desktop / tablet breakpoints — task 6.2a (2026-08-08)
+
+**Now three real breakpoints, from two dedicated Figma frames** (file
+`BWF8m6iu8eQJqJghVUbsOQ`): **tablet** node `154:35` and **desktop** node
+`148:144`. (The original punch-list said "desktop/laptop/tablet" but only two
+frames exist — laptop folds into desktop; no third breakpoint was invented.)
+All **12** tiles now live in `.bento-grid`: the earlier 9 plus the three that
+used to render below it (Sleep stages, Recovery-vs-strain, Hydration-vs-
+recovery). Grid gap and page side-gutters are **`--space-4` (16px)** at both
+upper breakpoints, straight from the frames; mobile is untouched.
+
+| Breakpoint          | Content column | Columns             | Gap  | Notes                                                    |
+| ------------------- | -------------- | ------------------- | ---- | -------------------------------------------------------- |
+| mobile `<640px`     | `max 640px`    | 1 (`1fr`)           | 12px | **Unchanged** — single-column stack, DOM = reading order |
+| tablet `640–1023px` | `max 992px`    | 2 (`repeat(2,1fr)`) | 16px | Journal is a **full-width row**; 488px tile pairs        |
+| desktop `≥1024px`   | `max 1280px`   | 4 (`repeat(4,1fr)`) | 16px | Journal spans cols 1–2 **and rows 2–3** (632×~420px)     |
+
+The main column (`.dashboard`) side padding drops to `--space-4` (16px) at
+`≥640px` (was `--space-5`/24px), and its `max-width` is raised to **1312px** at
+`≥1024px` (was 1200) so the 1280px desktop grid isn't clipped — 1312 is the
+Figma desktop frame width, 16px gutters → 1280 content. The `RangeToggle` row
+tracks the same per-breakpoint `max-width` (992 / 1280) so it right-aligns to
+the grid edge.
+
+**Before → after `grid-template-areas`:**
+
+_Before (single `≥640px`, 3 cols `1.1fr 1fr 1fr`, 9 tiles):_
+
+```
+"period   period   period"
+"journal  recovery sleep"
+"journal  calories strain"
+"journal  skintemp skintemp"
+"hrv      hrv      hrv"
+"rhr      rhr      rhr"
+```
+
+_After — tablet (`640–1023px`, `repeat(2,1fr)`, 12 tiles):_
+
+```
+"period       period"
+"journal      journal"
+"recovery     sleep"
+"calories     strain"
+"skintemp     skintemp"
+"hrv          hrv"
+"rhr          rhr"
+"sleepstages  sleepstages"
+"recstrain    recstrain"
+"hydration    hydration"
+```
+
+_After — desktop (`≥1024px`, `repeat(4,1fr)`, 12 tiles):_
+
+```
+"period      period      period       period"
+"journal     journal     recovery     sleep"
+"journal     journal     calories     strain"
+"skintemp    skintemp    hrv          hrv"
+"rhr         rhr         sleepstages  sleepstages"
+"recstrain   recstrain   hydration    hydration"
+```
+
+The `.bento-*` grid-area names are shared by both upper breakpoints (only the
+template differs); on mobile there are no named areas, so each named item
+auto-places into the single column in DOM order. **Also in 6.2a:** the
+`SleepStagesTile` was wired to the shared 1-month/3-month range toggle
+(`useSleepStages(rangeDays)` — it keys its fetch on `days`), which it wasn't
+before; verified live (subtitle "30 nights" → "90 nights", refetch at
+`?days=90`).
+
+**Verified** (browser, mock-connected dashboard) at 1400 / 900 / 375px against
+the frames — desktop tiles land pixel-exact (journal 632×417, 308px stat
+tiles, 632px chart pairs); tablet is 2×488 with a full-width journal; mobile is
+a single 640-capped column with no horizontal overflow.
+
 ### Time-range toggle placement (task 4.14, 2026-07-28)
 
 The dashboard window is user-selectable between 30 and 90 days. The control
@@ -410,6 +543,14 @@ a 3-month user never sees a 30-day flash.
 period meter, and the journal do not respond to the toggle — each reads a
 single latest-scored day rather than charting a range, so there is no window
 for the control to change. Verified byte-identical across a toggle.
+
+> **Updated 2026-08-08 (task 6.2a):** two changes to the above. (1) The
+> `.range-toggle-row` no longer mirrors a fixed 640px — it tracks the grid's
+> per-breakpoint `max-width` (640 mobile / 992 tablet / 1280 desktop) so it
+> stays right-aligned to the grid edge at every width. (2) **Sleep stages** is
+> now range-driven too, so it's **six** tiles that update on toggle, not five —
+> `SleepStagesTile` was wired to `rangeDays` (`useSleepStages` keys on `days`);
+> the rings / period meter / journal remain out of scope as above.
 
 ---
 

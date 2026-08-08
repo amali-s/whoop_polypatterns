@@ -38,6 +38,24 @@
   --color-warning: #f5a623; /* caution / attention (warm amber) — FILLS/DOTS ONLY (2.03:1, never text) */
   --color-warning-text: #946200; /* 3.4: warning-toned TEXT (5.24:1 on surface, 4.65:1 on bg) */
 
+  /* 6.2a (2026-08-08) — chart tile title color, scoped to .ui-chart-title. Was
+   * --color-text (#0f2b3d, ~13:1 on white); the confirmed desktop/tablet Figma
+   * frames (nodes 148:144 / 154:35) set the tile headings a shade lighter.
+   * #4b5459 is 7.74:1 on --color-surface (#fff) and ~7.1:1 on the glass tile
+   * (--color-surface-translucent over the page gradient) — both well past §1's
+   * 4.5:1 body-text bar. FLAGGED: Figma's bound variable on the "Skin temp"
+   * title tile actually reads "Text secondary" #59554b, not #4b5459 (the task's
+   * value looks byte-transposed from Figma's); implemented as the task
+   * specifies and noted here. --color-text is unchanged. */
+  --color-chart-header: #4b5459;
+
+  /* 6.2a (2026-08-08) — RangeToggle selected-segment fill (was --color-accent).
+   * A pale near-white: the segment is delineated by its 1px
+   * --color-accent-strong border (6.4:1 on the white track) rather than by fill
+   * luminance, and its label switches from white to --color-text (11.97:1 on
+   * this fill — see .range-toggle-option-selected). */
+  --color-toggle-active: #c9eeff;
+
   /* --- Glossy / glass treatment ---
    * Gloss is a *gradient* token, not a flat color: the Aero sheen
    * is intrinsically directional (bright at top → fading down), so
@@ -96,13 +114,23 @@
   --color-sleep-awake: #ccff7c;
 
   /* --- Typography ---
-   * Direction: rounded, humanist sans. Intended face 'Nunito Sans'
-   * (SIL OFL, self-hostable) is NOT bundled yet — licensing/import
-   * is a later run; until then the stack falls back to system
-   * humanist faces ('Segoe UI' first gives Windows the authentic
-   * Vista-era Aero feel for free). */
-  --font-sans:
-    'Nunito Sans', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+   * BODY FACE = SPECTRAL (6.2a, 2026-08-08), a Google Fonts serif, loaded in
+   * index.html alongside Roboto. Replaces the never-bundled 'Nunito Sans'. The
+   * fallback stack is kept as-is (task: "same fallback stack pattern") — note
+   * it degrades to the humanist SANS stack, not a serif, if Spectral fails to
+   * load, so a swap-period render loses the serif character (a serif fallback
+   * like Georgia would preserve it if that's preferred).
+   *
+   * SCOPE, flagged: --font-sans is NOT the globally-inherited body font — that
+   * is the legacy `--sans` token in the `font:` shorthand below. --font-sans is
+   * read only by the component primitives (.ui-btn, .ui-input/-select/-textarea,
+   * .range-toggle-option, .journal-choice) and the chart axis tick labels
+   * (.chart-axis text). So Spectral lands on exactly those, at the two weights
+   * they use — 400 (inputs, axis labels) and 600 (buttons, toggle, chips) — the
+   * weight set requested from Google Fonts. If ALL inherited body copy should
+   * also be Spectral, `--sans` would need repointing too (wider than this task).
+   * --font-display (Roboto headings + headline numerals) is untouched. */
+  --font-sans: Spectral, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   /* HEADINGS = ROBOTO (confirmed 2026-08-01), loaded in index.html. Body text
    * is untouched: --font-sans above still drives it, so this is a
    * headings-only change as asked.

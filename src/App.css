@@ -100,18 +100,22 @@
 }
 
 /* ==============================================================
- * Bento dashboard grid (Figma file BWF8m6iu8eQJqJghVUbsOQ, node
- * 86:71). Replaces the earlier uniform 6-card grid (design.md §2
- * history). Mobile stacks every tile in Figma's reading order
- * (grid-template-columns: 1fr, no named areas needed — DOM order
- * already matches); tablet+ applies the named-area bento layout.
+ * Bento dashboard grid (Figma file BWF8m6iu8eQJqJghVUbsOQ). Three
+ * real breakpoints as of task 6.2a (2026-08-08):
+ *   • Mobile   <640px  — single-column stack, unchanged.
+ *   • Tablet   640–1023px — node 154:35, 992px content, 488px pairs.
+ *   • Desktop  ≥1024px    — node 148:144, 1280px content, 632/308px.
+ * (Laptop folds into desktop — no separate Figma frame.) The two
+ * upper breakpoints live in the media queries below; see design.md
+ * §2 for the before/after grid-template-areas and rationale. This
+ * replaces the earlier single "tablet+" 3-column bento capped at
+ * 640px (design.md §2 history).
  *
- * The Figma frame is a mobile mockup (430px canvas) with fairly
- * small, dense tiles — deliberately kept compact here too (capped
- * max-width, tight gap) rather than stretched to the dashboard's
- * 1200px column, so donuts/stat numbers don't blow up oversized on
- * desktop. Flagged as a reversible adaptation call, not a 1:1 spec
- * value from Figma (which only gives mobile dimensions). */
+ * Mobile stacks every tile in Figma reading order (columns: 1fr, no
+ * named areas — DOM order already matches). Its 640px cap and tight
+ * --space-3 gap are deliberately smaller than the wider content
+ * columns above so donuts/stat numerals don't blow up on a phone;
+ * that cap is overridden per breakpoint below. */
 .bento-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -160,16 +164,24 @@
  *     page (document.scrollWidth 787px at a 375px viewport, and
  *     window.innerWidth read 787 — a "tablet" width); charts.css's
  *     .sr-only-table fix brings both back to 375. Keep it that way. */
+/* ── Tablet + desktop breakpoints (task 6.2a, 2026-08-08) ──────────────────
+ * Shared across both upper breakpoints: the 16px grid gap and 16px side
+ * gutters from the frames, and the grid-area name for every tile. All twelve
+ * tiles now live inside .bento-grid — the sleep-stages, recovery-vs-strain and
+ * hydration-vs-recovery tiles used to render as full-width siblings BELOW the
+ * grid; the frames fold them in. The area NAMES are identical for tablet and
+ * desktop; only the template (columns + areas) differs, in the two blocks
+ * after this one. On mobile no template-areas exist, so a named item with no
+ * matching area simply auto-places into the single column in DOM order. */
 @media (min-width: 640px) {
+  .dashboard {
+    /* 16px side gutters to match the frames (was --space-5 / 24px). Mobile
+     * keeps 24px; top/bottom padding is unchanged. */
+    padding-inline: var(--space-4);
+  }
+
   .bento-grid {
-    grid-template-columns: 1.1fr 1fr 1fr;
-    grid-template-areas:
-      'period period period'
-      'journal recovery sleep'
-      'journal calories strain'
-      'journal skintemp skintemp'
-      'hrv hrv hrv'
-      'rhr rhr rhr';
+    gap: var(--space-4);
   }
 
   .bento-period {
@@ -198,6 +210,68 @@
   }
   .bento-rhr {
     grid-area: rhr;
+  }
+  .bento-sleepstages {
+    grid-area: sleepstages;
+  }
+  .bento-recstrain {
+    grid-area: recstrain;
+  }
+  .bento-hydration {
+    grid-area: hydration;
+  }
+}
+
+/* Tablet: 640–1023px — Figma node 154:35. Two equal 488px columns. The daily
+ * journal is a FULL-WIDTH row here (its own row), NOT the tall side column it
+ * becomes on desktop — the one place the two layouts genuinely diverge. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .bento-grid {
+    max-width: 992px;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-areas:
+      'period period'
+      'journal journal'
+      'recovery sleep'
+      'calories strain'
+      'skintemp skintemp'
+      'hrv hrv'
+      'rhr rhr'
+      'sleepstages sleepstages'
+      'recstrain recstrain'
+      'hydration hydration';
+  }
+
+  .range-toggle-row {
+    max-width: 992px;
+  }
+}
+
+/* Desktop: ≥1024px — Figma node 148:144. Four equal 308px columns. The journal
+ * spans the left two columns AND rows 2–3 (632×~420px); Recovery/Calories stack
+ * in column 3 and Sleep/Strain in column 4. The six chart rows below are 632px
+ * pairs (each spans two columns). */
+@media (min-width: 1024px) {
+  .dashboard {
+    /* Frame is 1312px wide; with the 16px gutters above that yields the 1280px
+     * content column. Raised from 1200px so the wider grid isn't clipped. */
+    max-width: 1312px;
+  }
+
+  .bento-grid {
+    max-width: 1280px;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-areas:
+      'period period period period'
+      'journal journal recovery sleep'
+      'journal journal calories strain'
+      'skintemp skintemp hrv hrv'
+      'rhr rhr sleepstages sleepstages'
+      'recstrain recstrain hydration hydration';
+  }
+
+  .range-toggle-row {
+    max-width: 1280px;
   }
 }
 
@@ -332,57 +406,21 @@
 }
 
 /* The rest of the tile's copy steps down with the heading. */
-.auth-card .muted,
-.auth-card .status {
+.auth-card .muted {
   font-size: var(--text-sm);
-}
-
-.auth-card .meta {
-  font-size: var(--text-xs);
 }
 
 .muted {
   color: var(--color-muted);
 }
 
-/* Connected status row with a small "live" dot. */
-.status {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  color: var(--color-text);
-}
-
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--color-positive);
-}
-
-/* Definition list of session metadata. */
-.meta {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--space-2) var(--space-4);
-  margin: 0;
-  width: 100%;
-  text-align: left;
-  font-size: var(--text-sm);
-}
-
-.meta dt {
-  color: var(--color-muted);
-}
-
-.meta dd {
-  margin: 0;
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  word-break: break-word;
-}
+/* The connected-state rules that lived here — .status (the "Connected to WHOOP"
+ * row + its .dot) and .meta (the Member ID / Scopes <dl>) — were removed in
+ * task 6.2a §5 along with the markup they styled: the header's status-chip is
+ * now the only place connection status shows, so the auth-card no longer
+ * renders at all when connected (App.tsx). No other markup used those classes
+ * (the header chip uses .status-chip / .status-dot). Dead-CSS-removal precedent
+ * as elsewhere in this file. */
 
 /* Dismissible error banner — still on the legacy (pre-§1) tokens on
  * purpose: it wasn't in the task 3.3 component list. Migrate it (or
