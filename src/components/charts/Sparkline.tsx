@@ -247,7 +247,7 @@ export function Sparkline({ data, title, tableCaption, noDataCaption }: Sparklin
                   d={linePath}
                   fill="none"
                   stroke={SPARK_COLOR}
-                  strokeWidth={2}
+                  strokeWidth={1.5}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   // Draw-on via normalized dash: pathLength=1 makes the whole
@@ -269,7 +269,7 @@ export function Sparkline({ data, title, tableCaption, noDataCaption }: Sparklin
                   className="sparkline-latest-dot"
                   cx={xAt(latest.index)}
                   cy={yScale(latest.value)}
-                  r={3}
+                  r={2}
                   fill={SPARK_COLOR}
                   style={{
                     opacity: entered ? 1 : 0,

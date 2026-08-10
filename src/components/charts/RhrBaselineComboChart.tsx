@@ -291,8 +291,8 @@ export function RhrBaselineComboChart({ data, title, tableCaption }: RhrBaseline
                   with its own edge on top in the same hue. No muted casing on
                   either — see the COLORS / STROKES note in the header. */}
               <path d={baselineAreaPath} fill={BASELINE_COLOR} fillOpacity={0.5} stroke="none" />
-              <path d={baselineEdgePath} fill="none" stroke={BASELINE_COLOR} strokeWidth={2} />
-              <path d={rhrLinePath} fill="none" stroke={RHR_COLOR} strokeWidth={2} />
+              <path d={baselineEdgePath} fill="none" stroke={BASELINE_COLOR} strokeWidth={1.5} />
+              <path d={rhrLinePath} fill="none" stroke={RHR_COLOR} strokeWidth={1.5} />
             </g>
             {/* Focusable points on the RHR line (rule 3) — one Tab stop per
                 non-null RHR day; the baseline area has no focus targets of its
@@ -314,7 +314,7 @@ export function RhrBaselineComboChart({ data, title, tableCaption }: RhrBaseline
                   className="chart-mark"
                   cx={cx}
                   cy={cy}
-                  r={3.5}
+                  r={2.5}
                   fill={RHR_COLOR}
                   style={markStyle}
                   tabIndex={0}

@@ -289,8 +289,8 @@ export function HrvBaselineComboChart({ data, title, tableCaption }: HrvBaseline
                   with its own edge on top in the same hue. No muted casing on
                   either — see the STROKES note in the header. */}
               <path d={baselineAreaPath} fill={BASELINE_COLOR} fillOpacity={0.5} stroke="none" />
-              <path d={baselineEdgePath} fill="none" stroke={BASELINE_COLOR} strokeWidth={2} />
-              <path d={hrvLinePath} fill="none" stroke={HRV_COLOR} strokeWidth={2} />
+              <path d={baselineEdgePath} fill="none" stroke={BASELINE_COLOR} strokeWidth={1.5} />
+              <path d={hrvLinePath} fill="none" stroke={HRV_COLOR} strokeWidth={1.5} />
             </g>
             {/* Focusable points on the HRV line (rule 3) — one Tab stop per
                 non-null HRV day; the baseline area has no focus targets of its
@@ -312,7 +312,7 @@ export function HrvBaselineComboChart({ data, title, tableCaption }: HrvBaseline
                   className="chart-mark"
                   cx={cx}
                   cy={cy}
-                  r={3.5}
+                  r={2.5}
                   fill={HRV_COLOR}
                   style={markStyle}
                   tabIndex={0}

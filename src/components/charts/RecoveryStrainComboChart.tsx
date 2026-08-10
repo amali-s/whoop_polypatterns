@@ -268,13 +268,13 @@ export function RecoveryStrainComboChart({
                 recovery points below are the keyboard/AT entry into the marks. */}
             <g aria-hidden="true" style={fadeStyle}>
               {/* Strain: a plain line, no area fill (2026-08-01). */}
-              <path d={strainLinePath} fill="none" stroke={STRAIN_COLOR} strokeWidth={2} />
+              <path d={strainLinePath} fill="none" stroke={STRAIN_COLOR} strokeWidth={1.5} />
               {/* Recovery: a bare line as of 2026-08-01 — the --color-muted
                   strokeWidth={4} casing that used to sit under it is REMOVED at
                   the user's direction, and the contrast cost was flagged back
                   rather than absorbed silently. See the STROKES note in the
                   header for what now carries rule 4 here. */}
-              <path d={recoveryLinePath} fill="none" stroke={RECOVERY_COLOR} strokeWidth={2} />
+              <path d={recoveryLinePath} fill="none" stroke={RECOVERY_COLOR} strokeWidth={1.5} />
             </g>
             {/* Focusable points on the recovery line (rule 3) — one Tab stop
                 per non-null recovery day; the area has no focus targets of its
@@ -296,7 +296,7 @@ export function RecoveryStrainComboChart({
                   className="chart-mark"
                   cx={cx}
                   cy={cy}
-                  r={3.5}
+                  r={2.5}
                   fill={RECOVERY_COLOR}
                   style={markStyle}
                   tabIndex={0}
