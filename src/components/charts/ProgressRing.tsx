@@ -97,7 +97,16 @@ export function ProgressRing({
 
   return (
     <div className="progress-ring">
+      {/* P1 (2026-08-15): `width`/`height` stay as the SOURCE geometry the
+          viewBox and the stroke-dasharray math above are computed from —
+          changing `size` still resizes the logical ring. What makes it
+          responsive is `.progress-ring-svg` in charts.css, which overrides
+          the RENDERED size with a container-query clamp() driven by the
+          recovery/strain tile's own width (`.bento-recovery`/`.bento-strain`
+          are the query containers) — the SVG's `preserveAspectRatio` default
+          keeps the 1:1 viewBox intact while CSS free to scale it. */}
       <svg
+        className="progress-ring-svg"
         width={size}
         height={size}
         viewBox={`0 0 ${size} ${size}`}

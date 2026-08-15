@@ -75,7 +75,7 @@
   border-radius: var(--radius-xl);
 }
 
-/* --- Button: Aero pill (primary / secondary) --- */
+/* --- Button: Aero pill (primary / secondary / ghost) --- */
 .ui-btn {
   position: relative;
   display: inline-flex;
@@ -89,9 +89,14 @@
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
+  /* P1 (2026-08-15): `transform` joins the transition list for the new
+   * :active press-down below — border/background already animated on
+   * hover, so this just adds the one extra property rather than a second
+   * shorthand. */
   transition:
     border-color 0.2s,
-    background-color 0.2s;
+    background-color 0.2s,
+    transform 0.1s ease-out;
 
   &:focus-visible {
     outline: 2px solid var(--color-accent);
@@ -109,6 +114,18 @@
     transform: translate(-50%, -50%);
     width: max(100%, 44px);
     height: max(100%, 44px);
+  }
+
+  /* P1 (2026-08-15): the one press state every touch device gets — phones
+   * and tablets never fire :hover, so without this a tap on a secondary/ghost
+   * pill gave literally zero visual feedback between touchdown and the async
+   * result (Sync now's request, Disconnect/Connect's navigation). A small
+   * scale-down reads as "the button registered the press" everywhere,
+   * hover-capable or not. Scoped to `:not(:disabled)` so the disabled Sync
+   * now state (mid-request) doesn't visually "press" on a tap that the
+   * button is already ignoring. */
+  &:active:not(:disabled) {
+    transform: scale(0.96);
   }
 }
 
@@ -130,6 +147,13 @@
   &:hover {
     background: var(--color-accent-strong);
   }
+
+  /* Same fill as :hover — on a touch device the pointer never passes through
+   * a hover state, so :active is what has to carry the "this darkened
+   * because you pressed it" feedback on its own. */
+  &:active:not(:disabled) {
+    background: var(--color-accent-strong);
+  }
 }
 
 .ui-btn-secondary {
@@ -139,6 +163,42 @@
 
   &:hover {
     border-color: var(--color-accent);
+  }
+
+  &:active:not(:disabled) {
+    border-color: var(--color-accent);
+    /* One step further than :hover's border-only change — a touch tap gets
+     * no separate hover cue first, so the press needs its own, slightly
+     * stronger signal to read as "responding to you" rather than a copy of
+     * the hover style. --color-border is the same pale fill the selected
+     * journal chip uses at rest (components.css .journal-choice-selected). */
+    background: var(--color-border);
+  }
+}
+
+/* P1 (2026-08-15) — ghost: the third, quietest button treatment (see
+ * Button.tsx's variant doc). No border or surface fill at rest, unlike
+ * secondary — it reads as text-with-a-hit-area until interacted with, which
+ * is what visually separates Disconnect (rare, consequential) from Sync now
+ * (frequent, low-stakes) in the header even though both are `size="sm"`
+ * pills sitting side by side. Hover/active pick up a boundary rather than a
+ * fill, echoing secondary's vocabulary at lower volume instead of inventing
+ * a fourth register. */
+.ui-btn-ghost {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-muted);
+  box-shadow: none;
+
+  &:hover {
+    border-color: var(--color-border);
+    color: var(--color-accent-strong);
+  }
+
+  &:active:not(:disabled) {
+    border-color: var(--color-border);
+    background: var(--color-border);
+    color: var(--color-accent-strong);
   }
 }
 
@@ -365,7 +425,8 @@
   transition:
     border-color 0.2s,
     background-color 0.2s,
-    color 0.2s;
+    color 0.2s,
+    transform 0.1s ease-out;
 
   /* §5.1's focus indicator, unchanged: #1173a6 at ≥4.6:1 on every shell
    * background (the bar needs 3:1). */
@@ -390,6 +451,17 @@
 
   &:hover {
     color: var(--color-accent-strong);
+  }
+
+  /* P1 (2026-08-15): the thumb's own 260ms slide is already strong feedback
+   * once a tap lands, but there is a gap BEFORE that — the instant of
+   * touchdown, before onClick has even fired on a touch device. The label
+   * darkening + a small press-down close that gap; :active fires on
+   * touchstart, the slide only starts once React re-renders with the new
+   * `value`. */
+  &:active {
+    color: var(--color-accent-strong);
+    transform: scale(0.94);
   }
 }
 
@@ -493,7 +565,8 @@
   transition:
     border-color 0.2s,
     background-color 0.2s,
-    color 0.2s;
+    color 0.2s,
+    transform 0.1s ease-out;
 
   &:focus-visible {
     outline: 2px solid var(--color-accent);
@@ -503,6 +576,15 @@
   &:hover {
     border-color: var(--color-accent);
     color: var(--color-accent-strong);
+  }
+
+  /* P1 (2026-08-15): same touch-feedback gap as .ui-btn/.range-toggle-option
+   * — this is the journal's own multi-choice chip, tapped far more than
+   * either, and had no non-hover feedback at all before this. */
+  &:active {
+    border-color: var(--color-accent);
+    background: var(--color-border);
+    transform: scale(0.96);
   }
 }
 
@@ -526,6 +608,13 @@
     border-color: var(--color-accent);
     background: var(--color-border);
     color: var(--color-text);
+  }
+
+  &:active {
+    border-color: var(--color-accent);
+    background: var(--color-border);
+    color: var(--color-text);
+    transform: scale(0.96);
   }
 }
 
@@ -758,6 +847,9 @@
   font-size: var(--text-base);
   line-height: 1;
   cursor: pointer;
+  transition:
+    border-color 0.2s,
+    transform 0.1s ease-out;
 
   &:hover {
     border-color: var(--color-accent);
@@ -766,6 +858,11 @@
   &:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
+  }
+
+  &:active {
+    border-color: var(--color-accent);
+    transform: scale(0.92);
   }
 }
 
@@ -829,7 +926,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .journal-choice {
+  /* P1 (2026-08-15): .tearsheet-close joins .journal-choice here — it picked
+   * up a transition alongside its new :active press state above, so it needs
+   * the same kill switch as every other pressable control in this file. */
+  .journal-choice,
+  .tearsheet-close {
     transition: none;
   }
 

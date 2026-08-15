@@ -3,7 +3,16 @@ import { cx } from './cx';
 import './components.css';
 
 interface CommonButtonProps {
-  variant?: 'primary' | 'secondary';
+  /**
+   * 'ghost' (P1, 2026-08-15) — a third, lower-emphasis treatment for actions
+   * that must stay reachable but shouldn't compete with the primary one
+   * beside them. Introduced for the header's Disconnect action: it and
+   * "Sync now" were both rendering as identical secondary pills, which read
+   * as two equally-weighted actions when Disconnect is the rarer, more
+   * consequential one. No border/surface fill at rest (see .ui-btn-ghost in
+   * components.css) — it only picks up a boundary on hover/focus/active.
+   */
+  variant?: 'primary' | 'secondary' | 'ghost';
   /** 'md' = card CTA, 'sm' = compact header pill. */
   size?: 'md' | 'sm';
   className?: string;

@@ -134,7 +134,7 @@ function SleepStagesTile({ rangeDays }: { rangeDays: RangeDays }) {
           : `No sleep data in the last ${rangeDays} nights — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load sleep stages. Refresh to try again."
-      className="bento-sleepstages"
+      className="bento-sleepstages range-fade"
     >
       <StackedBarChart
         data={points}
@@ -242,7 +242,7 @@ function RecoveryStrainTile({
           : `No recovery or strain data in the last ${rangeDays} days — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load recovery and strain. Refresh to try again."
-      className="bento-recstrain"
+      className="bento-recstrain range-fade"
     >
       <RecoveryStrainComboChart
         data={points}
@@ -288,7 +288,7 @@ function HrvBaselineTile({
       : series.status;
   return (
     <ChartContainer
-      className="bento-hrv"
+      className="bento-hrv range-fade"
       title="HRV over time"
       status={status}
       loadingLabel="Loading your HRV…"
@@ -362,7 +362,7 @@ function RhrBaselineTile({
       : series.status;
   return (
     <ChartContainer
-      className="bento-rhr"
+      className="bento-rhr range-fade"
       title="RHR over time"
       status={status}
       loadingLabel="Loading your RHR…"
@@ -459,7 +459,7 @@ function HydrationRecoveryTile({
           : `No recovery or journal data in the last ${rangeDays} days — run a sync and log a day, then refresh.`
       }
       errorMessage="Couldn’t load hydration and recovery. Refresh to try again."
-      className="bento-hydration"
+      className="bento-hydration range-fade"
       legend={
         /* Three entries, one per hydration state — hue is the hydration channel
            now, so the legend explains hue and nothing else. Recovery is NOT in
@@ -528,7 +528,7 @@ function SkinTempTile({ series, rangeDays }: { series: DailySeriesState; rangeDa
   // drop the prop" guidance.
   return (
     <ChartContainer
-      className="bento-skintemp"
+      className="bento-skintemp range-fade"
       title="Skin temp over time"
       status={status}
       loadingLabel="Loading your skin temperature…"
@@ -701,7 +701,7 @@ function SleepStatTile({ series, rangeDays }: { series: DailySeriesState; rangeD
     sleepDay && sleepDay !== trueToday ? `As of ${formatRingDay(sleepDay)}` : undefined;
   return (
     <ChartContainer
-      className="bento-sleep"
+      className="bento-sleep range-fade"
       title="Sleep"
       status={statTileStatus(series)}
       loadingLabel="Loading your sleep…"
@@ -742,7 +742,7 @@ function CaloriesStatTile({
   });
   return (
     <ChartContainer
-      className="bento-calories"
+      className="bento-calories range-fade"
       title="Calories"
       status={statTileStatus(series)}
       loadingLabel="Loading your calories…"
@@ -1413,10 +1413,42 @@ function App() {
   // linger until the new response lands (no loading flash, no cleared tiles).
   const dailySeries = useDailySeries(rangeDays);
 
+  // P1 (2026-08-15) — range-change transition. Flipping the toggle used to
+  // just snap every range-driven tile straight to its new data with no
+  // visual acknowledgement that anything happened (the old points lingering
+  // per useDailySeries' comment above makes a fast refetch look identical to
+  // a dropped click). `rangeFading` drives a brief opacity dip (.range-fade
+  // in App.css) on those eight tiles between the click and the new fetch
+  // actually landing — real state, not a fixed setTimeout guess, so a slow
+  // network dips for exactly as long as the wait really is.
+  const [rangeFading, setRangeFading] = useState(false);
+
+  // Clears the dip once `dailySeries` resolves for the CURRENT `rangeDays`.
+  // Deliberately NOT a useEffect: setState-in-effect for "reset state when
+  // another value changes" is exactly the cascading-render pattern
+  // react-hooks/set-state-in-effect flags, and React's own guidance for this
+  // case is to compare during render instead (react.dev "Adjusting some
+  // state when a prop changes"). useDailySeries has no synchronous "reset to
+  // loading" (its own comment above), so `dailySeries`'s REFERENCE only
+  // changes when a fetch actually completes — comparing it against the last
+  // reference seen fires this once per completed fetch, not once per render.
+  // Also fires (harmlessly, rangeFading already false) on the first mount
+  // fetch. SleepStagesTile runs its own independent rangeDays-keyed fetch
+  // (useSleepStages) and isn't tracked here — its completion isn't
+  // observable from App, so its tile rides the same dip and clears with
+  // everyone else rather than getting a fetch-accurate signal of its own;
+  // close enough in practice since both requests fire together.
+  const [seenDailySeries, setSeenDailySeries] = useState(dailySeries);
+  if (dailySeries !== seenDailySeries) {
+    setSeenDailySeries(dailySeries);
+    setRangeFading(false);
+  }
+
   /** Apply a new range and persist it. Single place the two stay in sync. */
   function handleRangeChange(next: RangeDays): void {
     setRangeDays(next);
     storeRangeDays(next);
+    setRangeFading(true);
   }
 
   /**
@@ -1522,7 +1554,13 @@ function App() {
               >
                 {SYNC_LABELS[syncState]}
               </Button>
-              <Button variant="secondary" size="sm" href="/api/logout">
+              {/* P1 (2026-08-15): ghost, not secondary — Sync now (above) is
+                  the frequent, low-stakes action and keeps the bordered
+                  secondary pill; Disconnect is rare and consequential (it
+                  ends the session), so it drops to the quieter ghost
+                  treatment. Previously identical pills read as two
+                  equally-weighted actions. */}
+              <Button variant="ghost" size="sm" href="/api/logout">
                 Disconnect
               </Button>
             </>
@@ -1617,7 +1655,17 @@ function App() {
           />
         </div>
 
-        <section className="bento-grid" aria-label="Charts">
+        {/* P1: data-range-fading, not a class toggle here — the eight
+            range-driven tiles below opt in individually via the `range-fade`
+            class on their own `bento-*` className (App.css), and this
+            attribute is what .range-fade actually keys off of. Kept off the
+            fixed-window tiles (period, journal, both rings) so they never
+            dip on a range change they don't participate in. */}
+        <section
+          className="bento-grid"
+          aria-label="Charts"
+          data-range-fading={rangeFading || undefined}
+        >
           <PeriodMeterTile />
 
           <JournalTile />

@@ -140,6 +140,39 @@
   margin-inline: auto;
 }
 
+/* P1 (2026-08-15) — range-change transition. `.range-fade` marks the eight
+ * range-driven tiles (App.tsx: sleep/calories stats, skin temp, HRV, RHR,
+ * sleep stages, recovery-vs-strain, hydration-vs-recovery); the period
+ * meter, journal and both rings stay off it because RING_DAYS/journal are
+ * untouched by the toggle. The dip is driven by `data-range-fading` on
+ * `.bento-grid` (App.tsx's `rangeFading` state) rather than a per-tile
+ * class swap, so this is one selector instead of eight.
+ *
+ * Opacity, not a layout property: fading width/height would reflow the
+ * whole grid on every toggle press, and the tiles' own fixed chart heights
+ * (CHART_PLOT_HEIGHT) mean nothing needs to resize anyway — only "this is
+ * updating" needs to read.
+ *
+ * The transition lives on `.range-fade` (so leaving the pending state animates
+ * too), the opacity CHANGE lives on the attribute selector below. */
+.range-fade {
+  transition: opacity 200ms ease-out;
+}
+
+.bento-grid[data-range-fading='true'] .range-fade {
+  opacity: 0.45;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The dip still HAPPENS — dropping straight to 45% and back is still an
+   * honest "this changed" signal — it just arrives instantly instead of
+   * easing (design.md §5's reduced-motion rule, same pattern as the range
+   * toggle's own thumb/label transitions in components.css). */
+  .range-fade {
+    transition: none;
+  }
+}
+
 /* ── Mobile layout lock under pinch-zoom (task 1, 2026-08-01) ──────────────
  * REQUIREMENT: pinch-zooming out on a phone must NOT flip the layout to a
  * wider breakpoint. The zoom GESTURE stays enabled — index.html deliberately
@@ -249,8 +282,18 @@
 
 /* Desktop: ≥1024px — Figma node 148:144. Four equal 308px columns. The journal
  * spans the left two columns AND rows 2–3 (632×~420px); Recovery/Calories stack
- * in column 3 and Sleep/Strain in column 4. The six chart rows below are 632px
- * pairs (each spans two columns). */
+ * in column 3 and Sleep/Strain in column 4.
+ *
+ * CORRECTED P1 (2026-08-15): re-checked against the confirmed 148:144 frame
+ * (metadata: "Skin temp over time" x16 y855 w1280 — full content width, its
+ * own row; "RHR over time" x16/"HRV over time" x664 y990 w632 each — a pair;
+ * "Strain vs recovery" x16/"Sleep stages at night" x664 y1208 w632 each —
+ * the next pair; "Hydration vs recovery" x16 y1424 w1280 — full width again).
+ * The template below had drifted from that: skintemp was sharing a row with
+ * hrv instead of spanning alone, rhr was paired with sleepstages instead of
+ * hrv, and recstrain was paired with hydration instead of sleepstages (which
+ * also meant hydration never got its own full-width row). Four rows, all
+ * fixed together since they're one interlocking swap. */
 @media (min-width: 1024px) {
   .dashboard {
     /* Frame is 1312px wide; with the 16px gutters above that yields the 1280px
@@ -265,9 +308,10 @@
       'period period period period'
       'journal journal recovery sleep'
       'journal journal calories strain'
-      'skintemp skintemp hrv hrv'
-      'rhr rhr sleepstages sleepstages'
-      'recstrain recstrain hydration hydration';
+      'skintemp skintemp skintemp skintemp'
+      'rhr rhr hrv hrv'
+      'recstrain recstrain sleepstages sleepstages'
+      'hydration hydration hydration hydration';
   }
 
   .range-toggle-row {

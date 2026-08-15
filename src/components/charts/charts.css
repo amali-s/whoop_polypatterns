@@ -206,6 +206,47 @@
   gap: var(--space-2);
 }
 
+/* P1 (2026-08-15) — responsive ring sizing. The recovery/strain tiles
+ * (App.css .bento-recovery/.bento-strain) become CSS size-query containers
+ * so the ring inside can read the tile's OWN rendered width and scale to it
+ * at every breakpoint, rather than a fixed 96px (ProgressRing's `size`
+ * default) or a guessed set of `@media` viewport sizes. The same two tile
+ * classes are shared with `.bento-sleep`/`.bento-calories` (StatDelta, not a
+ * ring) at tablet+ column-pairing, but `container-type` on an unrelated
+ * sibling class costs nothing — it only matters to descendants that actually
+ * query it.
+ *
+ * `inline-size`, not `size`: only the tile's WIDTH needs to drive the ring;
+ * a `size` container additionally contains block-size, which would make the
+ * card stop sizing to its own content height — the tile's height still needs
+ * to come from its content (title + ring + trend row) laid out normally. */
+.bento-recovery,
+.bento-strain {
+  container-type: inline-size;
+}
+
+/* The actual fluid size. `clamp()` floors it so a cramped mobile tile still
+ * renders a legible ring, and caps it so a wide desktop quarter-column
+ * doesn't blow the ring past a sensible reading size; `42cqw` in between
+ * scales continuously with the container's measured width — same mechanism
+ * as the D3 charts' own ResizeObserver-driven sizing (useChartDimensions),
+ * just via CSS since this is a single fixed-viewBox SVG, not a chart that
+ * needs its actual coordinate system recomputed per pixel.
+ *
+ * `display: block` because SVG defaults to inline, which was leaving a few
+ * px of baseline gap under the ring inside the centered flex column above.
+ * `height: auto` + the unchanged `viewBox` (still `0 0 size size`, a fixed
+ * LOGICAL box) is what keeps the arc's proportions — stroke width, radius,
+ * the centered value text — scaling together instead of the ring stretching
+ * non-uniformly. Unsupported browsers (pre-2023) simply keep the original
+ * fixed 96px the `width`/`height` HTML attributes already render at — the
+ * whole declaration is ignored, not a broken one. */
+.progress-ring-svg {
+  display: block;
+  width: clamp(72px, 42cqw, 168px);
+  height: auto;
+}
+
 /* Real text, never zone-colored (§5.1: --color-positive/-warning are
  * fills-only; §5.2 rule 4: value must not rely on the arc hue). */
 .progress-ring-value {
