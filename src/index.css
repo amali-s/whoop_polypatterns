@@ -85,7 +85,7 @@
   --color-chart-2: #875c00; /* Dark orange — Calories / dehydrated */
   --color-chart-3: #ffcce7; /* Pale pink — period meter. 2026-08-01: was #ff4978 */
   --color-chart-4: #d9e3f0; /* Pale blue-grey — HRV/RHR recent baseline. 2026-08-01: was #d9d059 */
-  --color-chart-5: #02b3ff; /* Bright azure — Strain. 2026-08-01: was #096694 */
+  --color-chart-5: #0088cc; /* Deep azure — Strain. 6.2b: was #02b3ff (2.36:1, failed 3:1); now 3.95:1 white / 3.62:1 tile */
   /* UNUSED / RESERVED as of 2026-08-01. Was Recovery, but the recovery line
    * in RecoveryStrainComboChart now reads --color-positive (the same #6BCB3C
    * the recovery ring's green zone uses), so nothing consumes this token.

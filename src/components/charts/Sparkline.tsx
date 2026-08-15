@@ -36,6 +36,15 @@ import type { DailyMetricPoint } from '../../../api/_lib/transforms';
 // temp is the NORMAL case on pre-4.0 hardware, so long runs of gaps (or a
 // fully empty line) are expected, honest states here.
 //
+// GAP TREATMENT (6.2b P0 #1): the break above is correct but was reading as a
+// broken chart. Two non-data signifiers now sit on top of the (unchanged)
+// null-breaking: a faint dotted --color-muted connector bridges each null span
+// UNDER the solid line so the fragments track as one series, and a truly
+// isolated reading (no defined neighbour either side, which draws no solid
+// segment) gets the endpoint-dot treatment. Neither asserts a value in the gap
+// — the real line/area still break there. See the connectorPath/isolatedPoints
+// memo below.
+//
 // design.md §5.2 compliance, scaled to the tile:
 // - rule 1: renders through ChartSvg (role="img" + <title>/<desc> via
 //   aria-labelledby); the <desc> describes the DATA — date span, value range,
@@ -159,6 +168,44 @@ export function Sparkline({ data, title, tableCaption, noDataCaption }: Sparklin
     return generator(data) ?? '';
   }, [data, xAt, yScale, boundedHeight]);
 
+  // GAP TREATMENT (6.2b P0 #1). `.defined()` correctly breaks the real line and
+  // area at every null day and MUST keep doing so — this repo never interpolates
+  // a data line across missing readings. But a bare break reads as a broken
+  // chart (2–3 disconnected fragments), so two non-data signifiers are layered
+  // on top of the intact null discipline:
+  //   1. connectorPath — a faint dotted --color-muted bridge across each null
+  //      span, drawn UNDER the solid line so it only shows in the gaps. It is
+  //      not a data line: it never asserts a value in the gap (it's dotted, and
+  //      the real line/area still break there), it just lets the eye track one
+  //      series with missing days instead of unrelated fragments.
+  //   2. isolatedPoints — a single reading with no defined neighbour on either
+  //      side produces no solid segment (d3 `line()` emits a bare moveto for a
+  //      one-point run — an invisible stub), so it gets the endpoint-dot
+  //      treatment to read as a point, not an error.
+  const { connectorPath, isolatedPoints } = useMemo(() => {
+    const defined: { i: number; value: number }[] = [];
+    for (let i = 0; i < data.length; i++) {
+      const value = data[i].skinTempCelsius;
+      if (value != null) {
+        defined.push({ i, value });
+      }
+    }
+    const hasGap = defined.some((p, k) => k > 0 && p.i - defined[k - 1].i > 1);
+    let path = '';
+    if (hasGap) {
+      const generator = line<{ i: number; value: number }>()
+        .x((p) => xAt(p.i))
+        .y((p) => yScale(p.value));
+      path = generator(defined) ?? '';
+    }
+    const isolated = defined.filter(
+      (p, k) =>
+        (k === 0 || defined[k - 1].i !== p.i - 1) &&
+        (k === defined.length - 1 || defined[k + 1].i !== p.i + 1),
+    );
+    return { connectorPath: path, isolatedPoints: isolated };
+  }, [data, xAt, yScale]);
+
   // Latest non-null reading — marks the line's current end with a dot and
   // feeds the visible value text (rule 4). Plain scan, no useMemo — ≤30
   // items, and App's latestScored takes the same unmemoized approach.
@@ -241,6 +288,20 @@ export function Sparkline({ data, title, tableCaption, noDataCaption }: Sparklin
                   }}
                 />
               )}
+              {/* Dotted gap bridge, UNDER the solid line so it shows only in
+                  the null spans. Fades in on entrance (opacity, not the line's
+                  dash wipe) and is killed under reduced motion via charts.css. */}
+              {connectorPath && (
+                <path
+                  className="sparkline-gap-connector"
+                  d={connectorPath}
+                  fill="none"
+                  style={{
+                    opacity: entered ? 1 : 0,
+                    transition: duration > 0 ? `opacity ${duration}ms ease-out` : undefined,
+                  }}
+                />
+              )}
               {linePath && (
                 <path
                   className="sparkline-line"
@@ -263,6 +324,25 @@ export function Sparkline({ data, title, tableCaption, noDataCaption }: Sparklin
                       }
                     : {})}
                 />
+              )}
+              {/* Isolated readings get the same dot as the endpoint so a lone
+                  day reads as a point, not a stub. The latest reading is skipped
+                  here — it already draws its own dot below. */}
+              {isolatedPoints.map((p) =>
+                latest && p.i === latest.index ? null : (
+                  <circle
+                    key={p.i}
+                    className="sparkline-isolated-dot"
+                    cx={xAt(p.i)}
+                    cy={yScale(p.value)}
+                    r={2}
+                    fill={SPARK_COLOR}
+                    style={{
+                      opacity: entered ? 1 : 0,
+                      transition: duration > 0 ? `opacity ${duration}ms ease-out` : undefined,
+                    }}
+                  />
+                ),
               )}
               {latest && (
                 <circle

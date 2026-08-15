@@ -327,7 +327,12 @@
     (100% - 2 * var(--space-1) - (var(--thumb-count) - 1) * var(--space-1)) / var(--thumb-count)
   );
   transform: translateX(calc(var(--thumb-index) * (100% + var(--space-1))));
-  border: 1px solid var(--color-accent-strong);
+  /* 6.2b P0 #3: border thickened 1px → 2px. The pale fill is only 1.22:1 on the
+   * track, so before this the selected segment leaned almost entirely on a
+   * single 1px border and was hard to spot at a glance. box-sizing: border-box
+   * (set above) keeps the outer width exact, so the heavier border reshapes only
+   * the fill inset, never the geometry the slide depends on. */
+  border: 2px solid var(--color-accent-strong);
   border-radius: var(--radius-pill);
   /* 6.2a (2026-08-08): pale --color-toggle-active (#c9eeff), was --color-accent.
    * The fill is only 1.22:1 on the white track, so the --color-accent-strong
@@ -335,7 +340,12 @@
    * fill — and it still reads cleanly against #c9eeff. The selected label flips
    * to dark text to stay legible on the pale fill (.range-toggle-option-selected). */
   background: var(--color-toggle-active);
-  box-shadow: var(--shadow-inset-gloss);
+  /* 6.2b P0 #3: a second, independent selection cue — a soft blue-tinted lift
+   * (same rgba(9,102,148,…) family as --shadow-card) so the selected segment
+   * reads as a raised chip, not just an outlined one. Keeps the inset gloss. */
+  box-shadow:
+    var(--shadow-inset-gloss),
+    0 2px 6px -2px rgba(9, 102, 148, 0.35);
   pointer-events: none;
   transition: transform 260ms ease-in-out;
 }

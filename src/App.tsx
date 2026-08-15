@@ -960,6 +960,11 @@ function StrainRingTile({ series }: { series: DailySeriesState }) {
       {latest ? (
         <ProgressRing
           fraction={latest.value / STRAIN_SCALE_MAX}
+          // Floor the ARC (not the number) at the 0.9-strain equivalent so a
+          // low-strain day reads as "a little fill" rather than an empty ring;
+          // derived from STRAIN_SCALE_MAX so it tracks the scale, not a magic
+          // fraction. valueLabel/desc below still state the true, un-floored value.
+          minFraction={0.9 / STRAIN_SCALE_MAX}
           title="Strain"
           desc={`${latest.value.toFixed(1)} of ${STRAIN_SCALE_MAX} day strain, ${formatRingDay(latest.day)}.`}
           valueLabel={latest.value.toFixed(1)}

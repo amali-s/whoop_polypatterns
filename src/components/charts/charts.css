@@ -289,6 +289,19 @@
   color: var(--color-muted);
 }
 
+/* 6.2b P0 #1 — the dotted bridge across a null span. --color-muted at reduced
+ * opacity + a dotted dash makes it read as a clearly-non-data connector, not a
+ * second reading; it sits under the solid line, so it only shows in the gaps.
+ * The line's own null-breaking (`.defined()`) is unchanged — this never fills
+ * the gap with data. */
+.sparkline-gap-connector {
+  stroke: var(--color-muted);
+  stroke-width: 1;
+  stroke-opacity: 0.55;
+  stroke-dasharray: 2 3;
+  stroke-linecap: round;
+}
+
 /* Phase 4.12 — Calories & Sleep stat cards (bento tiles). Headline value + a
  * trailing-average delta as a REAL text sentence (§5.2 rule 4 — never
  * color/glyph-only). No SVG, no hover surface, no animation, so §5.2 rules 1–3
@@ -409,7 +422,9 @@
 
   .sparkline-line,
   .sparkline-area,
-  .sparkline-latest-dot {
+  .sparkline-latest-dot,
+  .sparkline-isolated-dot,
+  .sparkline-gap-connector {
     transition: none !important;
   }
 

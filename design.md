@@ -115,6 +115,34 @@
 >   failed badly) to `--color-text`, **11.97:1 on the fill** (see §5). Selection
 >   is additionally carried by `aria-checked`, so neither is a color-only signal.
 
+> **2026-08-15 — task 6.2b P0 fixes.** Two of the three P0 punch-list items touch
+> tokens/contrast; ratios computed WCAG 2.x (relative luminance), same method and
+> same white / translucent-tile (`≈ #edf7fc`) backgrounds as the 2026-08-01 pass.
+>
+> - **`--color-chart-5` `#02b3ff` → `#0088cc`** (Strain). The old bright azure
+>   was **2.36:1 white / 2.17:1 tile** — under the 3:1 non-text minimum (flagged
+>   in the 2026-08-01 table above). The deeper, more saturated azure is **3.95:1
+>   white / 3.62:1 tile**, so the mark clears 3:1 on its own. **This is the shared
+>   Strain token, so it changes BOTH consumers** — the strain ring (4.9) AND the
+>   strain line in `RecoveryStrainComboChart` (4.2). That is acceptable and
+>   intended: both are the same "Strain = azure" semantic and both were the same
+>   sub-3:1 hue, so both improve together (the 4.2 strain line previously rested
+>   on rule 4's redundancy half; it now passes on its own). No ring-only
+>   `progressColor` override was needed. The chart-palette + mapping tables below
+>   carry the new value; the historical 2026-08-01 table is left as its snapshot.
+> - **RangeToggle selected segment** (`.range-toggle-thumb`) — the audit found
+>   the selection leaned almost entirely on a single 1px border (the `#c9eeff`
+>   fill is 1.22:1 on the track). Strengthened WITHOUT changing the fill token, so
+>   the **11.97:1 dark-on-pale label and the documented 1.22:1 fill are preserved
+>   exactly**, and `aria-checked` still carries selection redundantly: (a) the
+>   border is thickened 1px → 2px `--color-accent-strong` (still 6.42:1 on the
+>   track), and (b) a soft blue-tinted drop shadow in the `--shadow-card`
+>   rgba(9,102,148,…) family (not a new color token) lifts it as a
+>   raised chip. Two independent cues now, not one thin line. If more chromatic
+>   pop is wanted, deepening the pale fill is the next lever (it would lower the
+>   label ratio from 11.97:1, though it stays far above 4.5:1) — deliberately
+>   NOT done here to honour the "preserve 11.97:1" constraint.
+
 | Token                         | Value                   | Usage                                                                                |
 | ----------------------------- | ----------------------- | ------------------------------------------------------------------------------------ |
 | `--color-bg`                  | `#e8f3fb`               | App background (airy sky-tinted)                                                     |
@@ -165,7 +193,7 @@ right-hand column). This supersedes the earlier "LOCKED" framing of this table.
 | `--color-chart-2` | `#875C00` | Dark orange    | unchanged              |
 | `--color-chart-3` | `#FFCCE7` | Pale pink      | `#FF4978`              |
 | `--color-chart-4` | `#D9E3F0` | Pale blue-grey | `#D9D059`              |
-| `--color-chart-5` | `#02B3FF` | Bright azure   | `#096694`              |
+| `--color-chart-5` | `#0088CC` | Deep azure     | `#02B3FF` (6.2b)       |
 | `--color-chart-6` | `#16D113` | Lime green     | unchanged — **unused** |
 | `--color-chart-7` | `#FFA1A0` | Warm coral     | `#902944`              |
 
@@ -195,7 +223,7 @@ imply a cross-chart semantic they don't have.
 | Token               | Hue             | Metric / role                                                       |
 | ------------------- | --------------- | ------------------------------------------------------------------- |
 | `--color-positive`  | Green `#6BCB3C` | **Recovery** — the donut's green zone AND chart 4.2's recovery line |
-| `--color-chart-5`   | Bright azure    | **Strain** — the donut/ring AND chart 4.2's strain line             |
+| `--color-chart-5`   | Deep azure      | **Strain** — the donut/ring AND chart 4.2's strain line             |
 | `--color-chart-1`   | Light blue      | **Sleep** (generic) / hydrated in the 5.5 matrix                    |
 | `--color-chart-2`   | Dark orange     | **Calories** (text-only tile) / dehydrated in the 5.5 matrix        |
 | `--color-chart-3`   | Pale pink       | **Cycle/period meter** only — no longer shared with skin temp       |

@@ -45,9 +45,11 @@ import type { DailyMetricPoint } from '../../../api/_lib/transforms';
 // encoding: the legend names "Recovery %" in real text, every point carries an
 // aria-label, every value is in the tooltip and in the sr-only data table, and
 // the two series sit on separate labelled axes. That is the same trade the
-// HRV/RHR lines (#FFA1A0, 1.93:1) and the strain line (#02B3FF, 2.36:1)
-// already run under since the 2026-08-01 pass — this line was the last one
-// still wearing a casing, so the chart is at least now internally consistent.
+// HRV/RHR lines (#FFA1A0, 1.93:1) run under since the 2026-08-01 pass — this
+// line was the last one still wearing a casing, so the chart is at least now
+// internally consistent. (The strain line itself no longer relies on that
+// trade: 6.2b deepened --color-chart-5 to #0088CC, 3.95:1 white / 3.62:1 tile,
+// which clears 3:1 on its own.)
 // If the trade turns out wrong, a darker green in the same hue family —
 // #4E9E1E, computed 3.37:1 on white and 3.10:1 on the tile — clears 3:1 on
 // its own and is a one-constant change to RECOVERY_COLOR below.
@@ -75,7 +77,8 @@ export interface RecoveryStrainComboChartProps {
 // Recovery reads --color-positive (#6BCB3C), NOT the old --color-chart-6:
 // after the 2026-08-01 token pass, --color-positive IS the recovery green —
 // the same value the recovery ring's green zone fills with — so the line and
-// the ring finally agree. Strain keeps --color-chart-5, repointed to #02B3FF.
+// the ring finally agree. Strain keeps --color-chart-5, deepened to #0088CC
+// in the 6.2b pass (was #02B3FF) so the strain mark clears 3:1 on its own.
 const RECOVERY_COLOR = 'var(--color-positive)';
 const STRAIN_COLOR = 'var(--color-chart-5)';
 

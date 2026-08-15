@@ -24,6 +24,16 @@ import { chartTransitionDuration } from './motion';
 export interface ProgressRingProps {
   /** Filled share of the ring, 0–1. Clamped defensively; non-finite → 0. */
   fraction: number;
+  /**
+   * Minimum rendered arc, 0–1 (default 0). The ARC draws at
+   * `max(fraction, minFraction)` so a genuine-but-tiny value still reads as
+   * "some fill" rather than a sliver. Purely visual — `valueLabel` and `desc`
+   * are the caller's own true text and are NEVER floored here, so the accessible
+   * channel keeps stating the real number. Generic on purpose (the ring is
+   * shared with Recovery); the caller derives any metric-specific floor.
+   * Ignored in the `noData` state, which always renders a bare track.
+   */
+  minFraction?: number;
   /** Accessible name (§5.2 rule 1 <title>), e.g. "Recovery". */
   title: string;
   /**
@@ -52,13 +62,20 @@ export function ProgressRing({
   progressColor = 'var(--color-accent)',
   trackColor = 'var(--color-border)',
   noData = false,
+  minFraction = 0,
   size = 96,
   strokeWidth = 10,
 }: ProgressRingProps) {
   const titleId = useId();
   const descId = useId();
 
-  const clamped = noData || !Number.isFinite(fraction) ? 0 : Math.min(1, Math.max(0, fraction));
+  // The true share, clamped to [0,1]; noData / non-finite → 0 (a bare track).
+  const value = noData || !Number.isFinite(fraction) ? 0 : Math.min(1, Math.max(0, fraction));
+  // The rendered arc is lifted to the floor for scored values only — never in
+  // noData (its track must stay bare) and never for a non-finite input. The
+  // floor is itself clamped so a bad prop can't overfill the ring.
+  const floor = Number.isFinite(minFraction) ? Math.min(1, Math.max(0, minFraction)) : 0;
+  const clamped = noData || !Number.isFinite(fraction) ? 0 : Math.max(value, floor);
   const center = size / 2;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;

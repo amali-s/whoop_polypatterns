@@ -1,5 +1,141 @@
 # Project state
 
+## Roadmap status (Task 6.2b — the three P0 UI/motion punch-list items) — ✅ COMPLETE (all three fixed + browser-verified at 375 / 800 / 1280px; NOT yet live-verified on prod) (2026-08-15)
+
+**Scope.** Only the three **P0** items from ROADMAP.md's 6.2b punch list (senior
+audit 2026-08-11). P1/P2/P3 items are deliberately untouched — separate runs.
+No commit made — changes left in the working tree for review.
+
+**What shipped, per file**
+
+- **`src/components/charts/Sparkline.tsx` (P0 #1 — gap treatment).** The
+  `.defined()` null-breaking is UNCHANGED — the data line/area still break at
+  every null day and never interpolate across (repo null discipline, ROADMAP
+  4.11). Two non-data signifiers were layered on top of the intact break:
+  (1) a `connectorPath` — a faint dotted `--color-muted` bridge through all
+  defined readings, drawn UNDER the solid line so it shows ONLY in the null
+  spans (it never asserts a value there); (2) `isolatedPoints` — a reading with
+  no defined neighbour either side draws no solid segment (d3 `line()` emits a
+  bare invisible moveto — this WAS the "orphaned stub"), so it now gets the
+  `.sparkline-latest-dot` treatment. The `<desc>` and `ChartDataTable` values
+  are untouched (still the real Celsius numbers), and the draw-on entrance is
+  still double-gated on `prefers-reduced-motion`. New CSS: `.sparkline-gap-connector`
+  in `charts.css`, added to that file's reduced-motion transition-kill block.
+- **`ProgressRing.tsx` + `StrainRingTile` (App.tsx) + `--color-chart-5` (P0 #2 —
+  strain fill).** Per Amaya's correction the pale TRACK is intentional — `trackColor`
+  untouched. Two FILL fixes: (a) `--color-chart-5` `#02b3ff` → **`#0088cc`**
+  (2.36:1 → **3.95:1 white / 3.62:1 tile**, clears the 3:1 non-text minimum). This
+  is the shared Strain token, so it changes BOTH the ring AND `RecoveryStrainComboChart`'s
+  (4.2) strain line — accepted and intended (same "Strain = azure" semantic,
+  both were the same sub-3:1 hue, both improve; the 4.2 line now passes on its own
+  instead of resting on rule-4 redundancy). No ring-only `progressColor` override
+  needed. (b) A new **generic** `minFraction` prop (default 0) on `ProgressRing`
+  floors the RENDERED arc at `Math.max(fraction, minFraction)`; `StrainRingTile`
+  derives the floor as `0.9 / STRAIN_SCALE_MAX`. The `valueLabel` and `<desc>` are
+  the caller's own true text and are never floored — the visual floor never leaks
+  into the accessible channel. `noData` and the Recovery ring are untouched
+  (no `minFraction` passed → default 0 → no change).
+- **`components.css` `.range-toggle-thumb` (P0 #3 — selected-state contrast).**
+  Strengthened WITHOUT touching the fill token, so the **11.97:1 dark-on-pale
+  label, the 1.22:1 documented fill, and the `aria-checked` redundancy are all
+  preserved exactly**: border thickened 1px → 2px `--color-accent-strong`
+  (6.42:1 on the track), plus a soft blue-tinted depth shadow
+  (`0 2px 6px -2px rgba(9,102,148,.35)`, the `--shadow-card` family — not a new
+  color token) so the segment reads as a raised chip. Two independent cues now,
+  not one thin line. The sliding-pill animation + reduced-motion handling are
+  untouched.
+- **`design.md` §1** — new dated 6.2b note documenting the `#0088CC` ratios and
+  the shared-token consequence, plus the chart-palette / hue-mapping table rows
+  updated (`Bright azure` → `Deep azure`). RangeToggle change documented there too.
+- **`src/components/charts/RecoveryStrainComboChart.tsx`** — comment-only: the
+  stale `#02B3FF` / "2.36:1" references in the header updated to the new value.
+
+**Contrast ratios (WCAG 2.x relative luminance; white and the `≈ #edf7fc` tile)**
+
+| Token / element        | Before          | After                    |
+| ---------------------- | --------------- | ------------------------ |
+| `--color-chart-5` fill | 2.36 / 2.17 (✗) | **3.95 / 3.62 (✓ ≥3:1)** |
+| RangeToggle label      | 11.97:1         | 11.97:1 (unchanged)      |
+| RangeToggle fill       | 1.22:1          | 1.22:1 (unchanged)       |
+| RangeToggle border     | 6.42:1 @ 1px    | 6.42:1 @ **2px**         |
+
+**Verified (browser, 2026-08-15, temporary `vite.config.ts` mock — the 4.1/5.3
+dev-middleware trick; reverted afterwards, `git diff vite.config.ts` empty)**
+
+- Gates: `npm run lint`, `npx tsc -b` (exit 0), `npm run typecheck:api`,
+  `npm run format:check` all pass.
+- Verified via computed DOM values (per the "preview downscales screenshots"
+  note — geometry over eyeballing), at **375 / 800 / 1280px**, zero horizontal
+  overflow at every width:
+  - **Sparkline:** solid line has 4 subpaths (3 real fragments + 1 bare moveto
+    for the isolated reading — proving the stub WAS invisible); exactly 1 dotted
+    connector (`rgb(84,109,128)` = `--color-muted`, dash `2 3`, opacity .55, 1px);
+    exactly 1 isolated dot; latest dot present; `<desc>` still reads "17 of 30
+    days have a reading" with the real range.
+  - **Strain ring:** rendered arc fraction = **0.0429** (the floor, `0.9/21`),
+    NOT the true `0.0238` — while `valueLabel` = "0.5" and `<desc>` = "0.5 of 21
+    …" keep the true value. Stroke `rgb(0,136,204)` = `#0088cc`. Recovery ring
+    unchanged (0.72, green `rgb(107,203,60)`).
+  - **RangeToggle:** thumb `border-top-width` 2px, color `rgb(15,100,148)`
+    (`--color-accent-strong`), box-shadow carries both the inset gloss and the
+    new lift, background `rgb(201,238,255)` = `#c9eeff` (unchanged).
+  - **Reduced motion (§5.2 rule 5):** confirmed by forcing the media query — all
+    JS-gated entrances render their final state immediately.
+
+**Still open / flagged**
+
+- **NOT live-verified on prod.** The mock proves the geometry/contract; confirm
+  on the real deployment against a synced account — especially the sparkline on
+  actual sparse skin-temp data, and a genuinely low-strain day showing the floor.
+- **Judgment call on P0 #3, flagged for Amaya.** I kept the RangeToggle FILL
+  unchanged to preserve the exact 11.97:1 label contrast the brief named, and
+  strengthened via border + shadow. If that doesn't feel like enough "pop," a
+  more saturated (but still pale) fill is the next lever — it would lower the
+  label ratio below 11.97:1 (though it stays far above the 4.5:1 minimum). Not
+  done unasked.
+- **P1/P2/P3 of 6.2b remain open** — separate follow-up runs, not started.
+- The two blockers from the prior entry (no Claude-in-Chrome extension; no
+  computer-use grant) were NOT relevant here — the in-app Browser pane drove the
+  temporary-mock verification.
+
+**What needs human action**
+
+- **Review the working-tree changes** (nothing committed), then **commit + push**
+  (`main` auto-deploys Vercel prod) and do the live check above.
+
+## Roadmap status (Live-verification pass — all of Phase 4 and Phase 5 checked against real production data) — ✅ 11 of 13 CONFIRMED, 1 known defect reproduced live, 1 diagnosed as not-a-bug (2026-08-15)
+
+**Why this entry exists.** Nearly every Phase 4/5 task above carried the same standing residual: "mock-verified in the browser, NOT live-verified against real data." Amaya has been using the Vercel prod deployment from her phone and laptop, so this was a real-world check-through of each tile against her actual synced WHOOP account and journal history — not a new build. No code changed except the two items flagged below; this is a documentation pass recording what's now confirmed, done by walking Amaya through a checklist per feature and recording her direct observations (this session had no live browser/computer-use access — see the two blockers noted below).
+
+**Confirmed working on real data (2026-08-15, user-confirmed):**
+
+- **4.1** Sleep-stages stacked bar — real per-night bars, gaps render as gaps not zero bars.
+- **4.2** Recovery/Strain combo chart — both series plot, missing data breaks the line rather than dropping to zero.
+- **4.3 / 4.15** HRV and RHR rolling-baseline combo charts — real line + correctly-labelled "Recent baseline" band.
+- **4.9** Recovery & Strain rings — re-confirmed (originally live-verified 2026-07-18). Note: this pass didn't specifically land on a yellow-zone (34–66%) recovery day, so that specific band is still only code-verified, not screenshotted.
+- **4.10 / 5.7** Period meter — logging two periods ≥4 days apart produced exactly the designed progression: an open-ended pill row after the first entry, then the full estimated-length dot matrix after the second. This closes the last Phase 4/5 residual that had been open since 4.10 shipped in July.
+- **4.12 / 4.13** Calories & Sleep stat cards — sensible values and deltas against real data; the sleep card's "As of [date]" fallback confirmed.
+- **4.14** Range toggle — 1↔3 month switch visibly refetches and changes the numbers; persists across a reload.
+- **5.2 / 5.3** Journal form + storage — a submitted entry survives a reload. First confirmed write to the real `daily_questionnaire` table from a logged-in browser.
+- **5.5** Hydration-vs-recovery correlation chart — logged hydrated/not-hydrated days produce correctly colored dots and a sensible summary sentence.
+
+**4.11 skin-temp sparkline — real defect, reproduced live, not yet fixed.** Renders real data and gap days do break the line rather than bridging it, but the render also shows 2–3 disconnected fragments plus an orphan dot instead of one continuous trend with a legible gap treatment. This is the exact defect the 2026-08-11 UI/motion audit already filed as **6.2b P0 item #1** — this pass confirms it's a real production bug, not a screenshot artifact or an illusion from sparse hardware data. No fix applied here; it's already queued in ROADMAP.md's 6.2b punch list. Still unconfirmed: whether the latest visible reading matches the WHOOP app's own figure for that day, and whether the sr-only data table quotes the exact same values as the SVG.
+
+**5.4 reminders — diagnosed, working as designed, not a bug.** Amaya reported never getting a reminder. Root cause, found by walking through `src/lib/reminder.ts`'s decision table with her: she's seen the "Remind me when I haven't logged today" opt-in banner in the journal tile but never clicked it. `reminderDecision()` requires an explicit opt-in click as a second gate on top of browser permission (deliberate, per the 5.4 rules — permission alone isn't consent) — so nothing fires until that button is pressed and the resulting browser permission prompt is granted. Not a defect; just an unfinished setup step on her end. Still open: click through the opt-in on Chrome/Mac (her primary device) and confirm a real OS-level notification actually fires, since the constructor path itself has never been exercised outside a faked `Notification` in dev preview.
+
+**Two blockers hit while trying to verify this directly, worth recording:**
+
+1. The Claude-in-Chrome browser extension was not connected this session, so the lighter tab-automation tools couldn't reach the live dashboard.
+2. Computer-use on Amaya's Mac requires the Claude desktop app to hold macOS Accessibility + Screen Recording permissions, which weren't granted yet — `computer_resolve_access` refused until that's done in System Settings.
+
+Neither was resolved this session; verification instead went through a manual checklist with Amaya reporting what she saw. If either gets fixed later, live UI checks (e.g., the still-open WHOOP-app cross-checks on 4.11/4.12, or actually watching the 5.4 OS notification fire) could be done directly instead of by proxy.
+
+**What needs human action**
+
+- **4.11:** no action needed to close this entry — the defect is already tracked as 6.2b P0 #1; fixing it is a separate build task.
+- **5.4:** click "Remind me when I haven't logged today" in the journal tile on the Mac, grant the browser's permission prompt, then leave a tab open on an unlogged day to confirm the OS notification fires.
+- **Commit:** this entry plus the ROADMAP.md annotations are uncommitted in the working tree (`ROADMAP.md` also still carries the uncommitted 2026-08-11 6.2b punch-list addition from before this pass) — commit when ready.
+
 ## Roadmap status (Task 5.7 — cycle-day meter wired to real journal data) — ✅ COMPLETE (every branch mock-verified in the browser; NOT live-verified against real journal rows) (2026-08-03)
 
 **The seam this closes**
