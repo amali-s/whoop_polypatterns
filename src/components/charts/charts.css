@@ -8,8 +8,13 @@
   stroke-width: 1;
 }
 
+/* P2 (2026-08-15): was var(--font-sans) (Spectral) — moved to
+ * var(--font-display) so axis tick labels read the same humanist-sans
+ * register as the chart title and headline numerals beside them (design.md
+ * §1 Typography, "header + all charts = humanist sans"). See index.css's
+ * Typography comment for the full two-register decision. */
 .chart-axis text {
-  font-family: var(--font-sans);
+  font-family: var(--font-display);
   font-size: var(--text-xs);
   fill: var(--color-muted);
 }

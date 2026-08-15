@@ -135,6 +135,7 @@ function SleepStagesTile({ rangeDays }: { rangeDays: RangeDays }) {
       }
       errorMessage="Couldn’t load sleep stages. Refresh to try again."
       className="bento-sleepstages range-fade"
+      id="bento-tile-sleepstages"
     >
       <StackedBarChart
         data={points}
@@ -243,6 +244,7 @@ function RecoveryStrainTile({
       }
       errorMessage="Couldn’t load recovery and strain. Refresh to try again."
       className="bento-recstrain range-fade"
+      id="bento-tile-recstrain"
     >
       <RecoveryStrainComboChart
         data={points}
@@ -460,6 +462,7 @@ function HydrationRecoveryTile({
       }
       errorMessage="Couldn’t load hydration and recovery. Refresh to try again."
       className="bento-hydration range-fade"
+      id="bento-tile-hydration"
       legend={
         /* Three entries, one per hydration state — hue is the hydration channel
            now, so the legend explains hue and nothing else. Recovery is NOT in
@@ -1423,6 +1426,21 @@ function App() {
   // network dips for exactly as long as the wait really is.
   const [rangeFading, setRangeFading] = useState(false);
 
+  // P2 (2026-08-15) — mobile progressive disclosure. On a phone the 12-tile
+  // bento grid stacks every tile full-width in DOM order (App.css: no
+  // grid-template-areas below 640px), which left ~5 of 12 tiles below the
+  // fold on what's meant to be a daily-glance dashboard. The three lowest-
+  // priority tiles — sleep stages, recovery-vs-strain, hydration-vs-recovery
+  // — are already LAST in DOM order (the 6.2a fold-into-grid comment above
+  // SleepStagesTile's render), so collapsing exactly those three behind a
+  // disclosure control needs no reordering. Starts collapsed: the point is
+  // getting the higher-priority tiles above the fold by default. Desktop/
+  // tablet are unaffected — the collapse only applies under the 640px
+  // breakpoint in App.css (`.bento-grid[data-secondary-collapsed]`), where
+  // the named grid-template-areas already place these three tiles
+  // deliberately, so there's nothing to progressively disclose there.
+  const [secondaryExpanded, setSecondaryExpanded] = useState(false);
+
   // Clears the dip once `dailySeries` resolves for the CURRENT `rangeDays`.
   // Deliberately NOT a useEffect: setState-in-effect for "reset state when
   // another value changes" is exactly the cascading-render pattern
@@ -1665,6 +1683,7 @@ function App() {
           className="bento-grid"
           aria-label="Charts"
           data-range-fading={rangeFading || undefined}
+          data-secondary-collapsed={!secondaryExpanded || undefined}
         >
           <PeriodMeterTile />
 
@@ -1684,11 +1703,34 @@ function App() {
 
           <RhrBaselineTile series={dailySeries} rangeDays={rangeDays} />
 
+          {/* P2 (2026-08-15) — mobile-only progressive-disclosure toggle for
+              the three tiles below. `.bento-disclosure-row` is display:none
+              from 640px up (App.css), so on tablet/desktop this button never
+              renders and never claims a cell in the named grid-template-areas
+              — the three tiles below place normally there, same as always.
+              On mobile it has no grid-area of its own either, so it simply
+              auto-places into the single-column stack in DOM order, right
+              where the collapsed tiles would otherwise start. */}
+          <div className="bento-disclosure-row">
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-expanded={secondaryExpanded}
+              aria-controls="bento-tile-sleepstages bento-tile-recstrain bento-tile-hydration"
+              onClick={() => setSecondaryExpanded((v) => !v)}
+            >
+              {secondaryExpanded ? 'Show fewer charts' : 'Show 3 more charts'}
+            </Button>
+          </div>
+
           {/* Folded into the grid in 6.2a — these three used to render as
               full-width siblings below .bento-grid; both confirmed Figma frames
               place them as grid tiles (design.md §2). DOM order is unchanged, so
               the mobile reading order and the tablet/desktop grid-template-areas
-              stay in agreement. */}
+              stay in agreement.
+              P2 (2026-08-15): also the three tiles the mobile disclosure
+              toggle above hides/reveals — see `.bento-grid[data-secondary-
+              collapsed]` in App.css. Unaffected at 640px+. */}
           <SleepStagesTile rangeDays={rangeDays} />
 
           <RecoveryStrainTile series={dailySeries} rangeDays={rangeDays} />

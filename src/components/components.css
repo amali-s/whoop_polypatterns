@@ -43,7 +43,12 @@
  * WITHOUT `overflow: hidden` on the card — that would clip chart tooltips,
  * which are absolutely positioned inside the tile and deliberately overflow
  * it. `pointer-events: none` so it never eats a click, and it is invisible to
- * assistive tech (no content, no role). */
+ * assistive tech (no content, no role).
+ *
+ * P2 (2026-08-15) — GLOSS INTENSITY +25%, CONFIRMED (index.css's
+ * --surface-gloss comment). Same ×1.25 scale-and-clamp as the shared gloss
+ * tokens: 0.85 → 1.0 (clamped), 0.35 → 0.44. The 0% stop and the falloff
+ * geometry (size/position/26%/58%) are unchanged — only intensity moved. */
 .ui-card::after {
   content: '';
   position: absolute;
@@ -54,8 +59,8 @@
   border-radius: inherit;
   background: radial-gradient(
     120% 90% at 92% 4%,
-    rgba(255, 255, 255, 0.85) 0%,
-    rgba(255, 255, 255, 0.35) 26%,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(255, 255, 255, 0.44) 26%,
     rgba(255, 255, 255, 0) 58%
   );
   pointer-events: none;

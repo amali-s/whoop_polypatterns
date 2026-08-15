@@ -36,6 +36,14 @@ export interface ChartContainerProps {
   errorMessage?: string;
   /** Extra classes on the card root — carries the .bento-* grid-area class. */
   className?: string;
+  /**
+   * P2 (2026-08-15) — optional id on the card root. Added so a tile can be
+   * targeted by `aria-controls` from outside it (the mobile progressive-
+   * disclosure toggle in App.tsx, which reveals/hides the sleep-stages,
+   * recovery-vs-strain and hydration-vs-recovery tiles). Omit it and nothing
+   * changes — every other tile still renders with no id, same as before.
+   */
+  id?: string;
   children?: ReactNode;
 }
 
@@ -54,6 +62,7 @@ export function ChartContainer({
   emptyMessage,
   errorMessage,
   className,
+  id,
   children,
 }: ChartContainerProps) {
   const titleId = useId();
@@ -63,6 +72,7 @@ export function ChartContainer({
   return (
     <Card
       as="article"
+      id={id}
       className={className}
       aria-labelledby={titleId}
       aria-busy={status === 'loading' || undefined}

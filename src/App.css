@@ -173,6 +173,48 @@
   }
 }
 
+/* P2 (2026-08-15) — mobile progressive disclosure. All 12 bento tiles were
+ * stacking full-width in DOM order below 640px (no grid-template-areas
+ * exist at that width — see the mobile-stack comment on .bento-grid above),
+ * leaving ~5 of 12 below the fold on what's meant to be a daily-glance
+ * dashboard. The three lowest-priority tiles — sleep stages, recovery-vs-
+ * strain, hydration-vs-recovery, already last in DOM order — now collapse
+ * behind a "Show N more charts" toggle (App.tsx `secondaryExpanded`) on
+ * mobile only. `data-secondary-collapsed` is driven the same way
+ * `data-range-fading` is above: an attribute on `.bento-grid` itself rather
+ * than a class on each tile, so this is one selector instead of three.
+ *
+ * SCOPED TO <640px ON PURPOSE: at 640px+ these three tiles occupy specific
+ * cells in the confirmed Figma grid-template-areas (sleepstages/recstrain/
+ * hydration below) — they are never collapsed there, because tablet/desktop
+ * never had a below-the-fold problem to solve. */
+@media (max-width: 639px) {
+  .bento-grid[data-secondary-collapsed] .bento-sleepstages,
+  .bento-grid[data-secondary-collapsed] .bento-recstrain,
+  .bento-grid[data-secondary-collapsed] .bento-hydration {
+    display: none;
+  }
+}
+
+/* The toggle button's row. No grid-area (mobile has none to assign), so it
+ * auto-places into the single-column stack in DOM order, right where the
+ * collapsed tiles would otherwise start. */
+.bento-disclosure-row {
+  display: flex;
+  justify-content: center;
+}
+
+@media (min-width: 640px) {
+  /* Tablet/desktop: the toggle has no job (see the SCOPED comment above), so
+   * it is removed from the grid entirely rather than left invisible-but-
+   * present — an item with no grid-area inside .bento-grid's named
+   * grid-template-areas would otherwise auto-place into the first free
+   * cell, which risks overlapping a real tile. */
+  .bento-disclosure-row {
+    display: none;
+  }
+}
+
 /* ── Mobile layout lock under pinch-zoom (task 1, 2026-08-01) ──────────────
  * REQUIREMENT: pinch-zooming out on a phone must NOT flip the layout to a
  * wider breakpoint. The zoom GESTURE stays enabled — index.html deliberately

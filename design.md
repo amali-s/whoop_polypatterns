@@ -170,15 +170,26 @@ Sharing one gradient token is what keeps the glass look **consistent**
 across every card (the inconsistency risk called out in the brief comes
 from components each hand-rolling a gradient; a shared token removes it).
 Reversible: fall back to the flat `--color-highlight` if the sheen is
-ever dropped. _(Flagged for confirmation — gradient vs. flat.)_
+ever dropped.
 
-| Token                  | Value                                                                                                      | Usage                                 |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `--gradient-bg`        | `linear-gradient(180deg,#f2fafe 0%,#dbeef9 100%)`                                                          | Subtle sky-gradient page background   |
-| `--surface-gloss`      | `linear-gradient(180deg, rgba(255,255,255,.85) 0%, rgba(255,255,255,.28) 42%, rgba(255,255,255,.04) 100%)` | Glass sheen overlaid on card surfaces |
-| `--color-highlight`    | `rgba(255,255,255,0.75)`                                                                                   | Flat specular edge / inset highlight  |
-| `--shadow-card`        | `0 8px 24px -8px rgba(9,102,148,.28), 0 2px 6px -2px rgba(9,102,148,.16)`                                  | Soft blue-tinted card drop shadow     |
-| `--shadow-inset-gloss` | `inset 0 1px 0 rgba(255,255,255,0.85)`                                                                     | Top inner gloss line on surfaces      |
+**GLOSS INTENSITY +25% — CONFIRMED (P2, 2026-08-15).** The corner-shine
+and translucent surface were reading as plain soft-shadow cards, not the
+"glossy Aero" look this section describes — resolved by scaling every
+specular/highlight value below ×1.25 (clamped at fully opaque where the
+multiply overshoots 1.0). `--shadow-card` (the ambient drop shadow, not a
+highlight) and `--color-surface-translucent` (a locked Figma-confirmed
+value — see index.css) are deliberately untouched; only the sheen itself
+moved. The matching corner-shine radial-gradient (`.ui-card::after` in
+`components.css`, not tokenized here) got the same ×1.25 treatment for
+the same reason.
+
+| Token                  | Value                                                                                                       | Usage                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| `--gradient-bg`        | `linear-gradient(180deg,#f2fafe 0%,#dbeef9 100%)`                                                           | Subtle sky-gradient page background   |
+| `--surface-gloss`      | `linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(255,255,255,.35) 42%, rgba(255,255,255,.05) 100%)`   | Glass sheen overlaid on card surfaces |
+| `--color-highlight`    | `rgba(255,255,255,0.94)`                                                                                    | Flat specular edge / inset highlight  |
+| `--shadow-card`        | `0 8px 24px -8px rgba(9,102,148,.28), 0 2px 6px -2px rgba(9,102,148,.16)`                                   | Soft blue-tinted card drop shadow     |
+| `--shadow-inset-gloss` | `inset 0 1px 0 rgba(255,255,255,1)`                                                                         | Top inner gloss line on surfaces      |
 
 ### Colors — chart / data-series palette (REPOINTED 2026-08-01)
 
@@ -266,17 +277,32 @@ Direction: rounded, humanist sans (friendly, optimistic — the Aero
 register). The historically "correct" face is Frutiger itself, which is
 **proprietary (Linotype)**, has no web-font licence, and was never an option.
 
+**TWO-REGISTER TYPOGRAPHY — CONFIRMED (P2, 2026-08-15).** 6.2a's Spectral
+rollout below only reached the component primitives + chart axis labels,
+which left **three** faces live at once (Spectral controls, Roboto
+headings/numerals, and the system-sans stack everything else fell back
+to) — that third register was drift, not a decision, and fought the
+"rounded, humanist sans" direction stated above. Resolved as: **Spectral
+is the deliberate second register**, extended to be the actual
+globally-inherited body font (all body copy, accent text, and label
+copy/text), rather than reverted. **Roboto (`--font-display`) is the
+humanist-sans register**, covering the dashboard header and every chart
+element — title, headline numerals, **and now axis/tick labels**, which
+is the one place this flips a prior decision: `.chart-axis text` moves
+off Spectral onto `--font-display` so axis labels match the chart
+title/numerals beside them instead of the surrounding UI chrome.
+
 **HEADINGS = Roboto — CONFIRMED and shipped 2026-08-01.** Loaded in
 `index.html` from Google Fonts (weights 400/500/700, `display=swap`) with
 `preconnect` hints. The earlier Nunito Sans / Mulish candidates were never
 imported and are dropped.
 
-- **Scope:** `--font-display` (and the legacy `--heading` token that drives
-  `h1, h2`) only. **Body text is unchanged** — `--font-sans` still resolves to
-  the system humanist stack. Note that `--font-display` already dressed more
-  than headings: the card titles, the ring/sparkline values and the stat-card
-  numerals read it too (charts.css), so Roboto lands on those numerals as
-  well. That is the token's pre-existing scope, not a widening.
+- **Scope (confirmed P2, 2026-08-15):** `--font-display` (and the legacy
+  `--heading` token that drives `h1, h2`) covers the dashboard header, the
+  chart/card titles, the ring/sparkline/stat-card numerals (charts.css —
+  its pre-existing scope), and now the chart axis tick labels too. That is
+  a single deliberate "header + all charts" register, not a widening done
+  piecemeal.
 - **Flagged — loading strategy is a judgment call.** The repo had no
   font-loading convention to follow (nothing was loaded before). Google Fonts
   is the smallest change that works, but it means a third-party request that
@@ -284,21 +310,23 @@ imported and are dropped.
   a health dashboard that may not be acceptable; self-hosting the two woff2
   files under `/public` with a local `@font-face` is a drop-in swap.
 
-**BODY FACE = Spectral — task 6.2a, 2026-08-08.** `--font-sans` now leads with
-Spectral (a Google Fonts **serif**), loaded from the **same single** Google
-Fonts `<link>` as Roboto (`family=Roboto:…&family=Spectral:wght@400;600`,
-`display=swap`) — one request, no new third-party host.
+**BODY FACE = Spectral — task 6.2a, 2026-08-08; extended P2, 2026-08-15.**
+`--font-sans` leads with Spectral (a Google Fonts **serif**), loaded from
+the **same single** Google Fonts `<link>` as Roboto
+(`family=Roboto:…&family=Spectral:wght@400;600`, `display=swap`) — one
+request, no new third-party host.
 
-- **Scope, flagged.** `--font-sans` is **not** the globally-inherited body font —
-  that is the legacy `--sans` token in the `:root` `font:` shorthand, which is
-  untouched. `--font-sans` is read only by the component primitives (`.ui-btn`,
-  `.ui-input`/`-select`/`-textarea`, `.range-toggle-option`, `.journal-choice`)
-  and the chart **axis tick labels** (`.chart-axis text`). So Spectral lands on
-  exactly those, at the two weights they render — **400** (inputs, axis labels)
-  and **600** (buttons, toggle, chips), which is the weight set requested. The
-  headline numerals and card titles read `--font-display` (Roboto) and are
-  **unaffected**. If ALL inherited body copy should also be Spectral, `--sans`
-  needs repointing too — wider than this task.
+- **Scope (widened P2, 2026-08-15).** `--font-sans` is read by the
+  component primitives (`.ui-btn`, `.ui-input`/`-select`/`-textarea`,
+  `.range-toggle-option`, `.journal-choice`) — same as 6.2a. It is **also**
+  now the globally-inherited body font: the legacy `--sans` token in the
+  `:root` `font:` shorthand is repointed to `var(--font-sans)`, so every
+  element that previously fell back to the system-sans stack (chart
+  subtitles/captions, muted copy, form labels, journal/body prose) reads
+  Spectral too. Weights are unchanged — **400** (inputs, body copy) and
+  **600** (buttons, toggle, chips). The headline numerals, card/chart
+  titles, and now axis labels read `--font-display` (Roboto) and are
+  **unaffected**.
 - **Fallback.** The stack keeps its existing pattern per the task, so it
   degrades to a **sans** face (not a serif) during the swap period; a serif
   fallback (e.g. Georgia) would preserve the serif character if preferred.
@@ -307,8 +335,8 @@ Fonts `<link>` as Roboto (`family=Roboto:…&family=Spectral:wght@400;600`,
 
 | Token            | Value                                                                                                          |
 | ---------------- | -------------------------------------------------------------------------------------------------------------- |
-| `--font-sans`    | `Spectral, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif` (body/primitives — 6.2a) |
-| `--font-display` | `Roboto, 'Segoe UI', system-ui, -apple-system, sans-serif` (headings — 2026-08-01)                             |
+| `--font-sans`    | `Spectral, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif` (body/accent/labels + primitives — 6.2a, widened P2 2026-08-15) |
+| `--font-display` | `Roboto, 'Segoe UI', system-ui, -apple-system, sans-serif` (header + all charts — 2026-08-01, scope confirmed P2 2026-08-15) |
 | `--font-mono`    | `ui-monospace, 'SFMono-Regular', 'Cascadia Code', Consolas, monospace`                                         |
 
 | Scale token   | Size | Typical use                  |
@@ -474,9 +502,9 @@ upper breakpoints, straight from the frames; mobile is untouched.
 
 | Breakpoint          | Content column | Columns             | Gap  | Notes                                                    |
 | ------------------- | -------------- | ------------------- | ---- | -------------------------------------------------------- |
-| mobile `<640px`     | `max 640px`    | 1 (`1fr`)           | 12px | **Unchanged** — single-column stack, DOM = reading order |
-| tablet `640–1023px` | `max 992px`    | 2 (`repeat(2,1fr)`) | 16px | Journal is a **full-width row**; 488px tile pairs        |
-| desktop `≥1024px`   | `max 1280px`   | 4 (`repeat(4,1fr)`) | 16px | Journal spans cols 1–2 **and rows 2–3** (632×~420px)     |
+| mobile `<640px`     | `max 640px`    | 1 (`1fr`)           | 12px | Single-column stack, DOM = reading order. **P2 (2026-08-15): progressive disclosure** — sleep stages, recovery-vs-strain and hydration-vs-recovery (already last in DOM order) collapse behind a "Show 3 more charts" toggle by default, so the higher-priority tiles land above the fold on a daily-glance phone view. See §5 (below) for the interaction. |
+| tablet `640–1023px` | `max 992px`    | 2 (`repeat(2,1fr)`) | 16px | Journal is a **full-width row**; 488px tile pairs. Unaffected by the mobile disclosure toggle — all 12 tiles always render. |
+| desktop `≥1024px`   | `max 1280px`   | 4 (`repeat(4,1fr)`) | 16px | Journal spans cols 1–2 **and rows 2–3** (632×~420px). Unaffected by the mobile disclosure toggle — all 12 tiles always render. |
 
 The main column (`.dashboard`) side padding drops to `--space-4` (16px) at
 `≥640px` (was `--space-5`/24px), and its `max-width` is raised to **1312px** at
@@ -987,6 +1015,16 @@ coefficients) rather than the two-anchor-point interpolation used here.
   sample rows are `aria-hidden` **deliberately** — they are fake data, and
   the adjacent (exposed) note tells screen-reader users there's no data
   source yet.
+- **Mobile progressive disclosure (P2, 2026-08-15):** the "Show 3 more
+  charts" / "Show fewer charts" toggle below `.bento-grid` on mobile is a
+  native `<button>` (`Button` component, `variant="secondary"`) with
+  `aria-expanded` reflecting `secondaryExpanded` and `aria-controls`
+  naming the three tiles it reveals (`ChartContainer` grew an optional
+  `id` prop for exactly this). Collapsed tiles are removed via
+  `display: none` (out of the accessibility tree and tab order both),
+  never `opacity`/`visibility` alone. The toggle itself is removed from
+  the DOM flow (`display: none`, not just hidden) at `≥640px`, where it
+  has no job — see §2.
 
 ### 5.2 Phase 4 chart accessibility contract (build against this)
 
