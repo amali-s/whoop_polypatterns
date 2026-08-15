@@ -183,13 +183,13 @@ moved. The matching corner-shine radial-gradient (`.ui-card::after` in
 `components.css`, not tokenized here) got the same ×1.25 treatment for
 the same reason.
 
-| Token                  | Value                                                                                                       | Usage                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
-| `--gradient-bg`        | `linear-gradient(180deg,#f2fafe 0%,#dbeef9 100%)`                                                           | Subtle sky-gradient page background   |
-| `--surface-gloss`      | `linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(255,255,255,.35) 42%, rgba(255,255,255,.05) 100%)`   | Glass sheen overlaid on card surfaces |
-| `--color-highlight`    | `rgba(255,255,255,0.94)`                                                                                    | Flat specular edge / inset highlight  |
-| `--shadow-card`        | `0 8px 24px -8px rgba(9,102,148,.28), 0 2px 6px -2px rgba(9,102,148,.16)`                                   | Soft blue-tinted card drop shadow     |
-| `--shadow-inset-gloss` | `inset 0 1px 0 rgba(255,255,255,1)`                                                                         | Top inner gloss line on surfaces      |
+| Token                  | Value                                                                                                    | Usage                                 |
+| ---------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `--gradient-bg`        | `linear-gradient(180deg,#f2fafe 0%,#dbeef9 100%)`                                                        | Subtle sky-gradient page background   |
+| `--surface-gloss`      | `linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(255,255,255,.35) 42%, rgba(255,255,255,.05) 100%)` | Glass sheen overlaid on card surfaces |
+| `--color-highlight`    | `rgba(255,255,255,0.94)`                                                                                 | Flat specular edge / inset highlight  |
+| `--shadow-card`        | `0 8px 24px -8px rgba(9,102,148,.28), 0 2px 6px -2px rgba(9,102,148,.16)`                                | Soft blue-tinted card drop shadow     |
+| `--shadow-inset-gloss` | `inset 0 1px 0 rgba(255,255,255,1)`                                                                      | Top inner gloss line on surfaces      |
 
 ### Colors — chart / data-series palette (REPOINTED 2026-08-01)
 
@@ -333,11 +333,11 @@ request, no new third-party host.
 - **Same privacy trade-off** as Roboto (a second face from the same Google Fonts
   hosts); self-hosting both woff2 families is the same drop-in alternative.
 
-| Token            | Value                                                                                                          |
-| ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| Token            | Value                                                                                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--font-sans`    | `Spectral, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif` (body/accent/labels + primitives — 6.2a, widened P2 2026-08-15) |
-| `--font-display` | `Roboto, 'Segoe UI', system-ui, -apple-system, sans-serif` (header + all charts — 2026-08-01, scope confirmed P2 2026-08-15) |
-| `--font-mono`    | `ui-monospace, 'SFMono-Regular', 'Cascadia Code', Consolas, monospace`                                         |
+| `--font-display` | `Roboto, 'Segoe UI', system-ui, -apple-system, sans-serif` (header + all charts — 2026-08-01, scope confirmed P2 2026-08-15)                          |
+| `--font-mono`    | `ui-monospace, 'SFMono-Regular', 'Cascadia Code', Consolas, monospace`                                                                                |
 
 | Scale token   | Size | Typical use                  |
 | ------------- | ---- | ---------------------------- |
@@ -500,11 +500,11 @@ used to render below it (Sleep stages, Recovery-vs-strain, Hydration-vs-
 recovery). Grid gap and page side-gutters are **`--space-4` (16px)** at both
 upper breakpoints, straight from the frames; mobile is untouched.
 
-| Breakpoint          | Content column | Columns             | Gap  | Notes                                                    |
-| ------------------- | -------------- | ------------------- | ---- | -------------------------------------------------------- |
+| Breakpoint          | Content column | Columns             | Gap  | Notes                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------- | -------------- | ------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | mobile `<640px`     | `max 640px`    | 1 (`1fr`)           | 12px | Single-column stack, DOM = reading order. **P2 (2026-08-15): progressive disclosure** — sleep stages, recovery-vs-strain and hydration-vs-recovery (already last in DOM order) collapse behind a "Show 3 more charts" toggle by default, so the higher-priority tiles land above the fold on a daily-glance phone view. See §5 (below) for the interaction. |
-| tablet `640–1023px` | `max 992px`    | 2 (`repeat(2,1fr)`) | 16px | Journal is a **full-width row**; 488px tile pairs. Unaffected by the mobile disclosure toggle — all 12 tiles always render. |
-| desktop `≥1024px`   | `max 1280px`   | 4 (`repeat(4,1fr)`) | 16px | Journal spans cols 1–2 **and rows 2–3** (632×~420px). Unaffected by the mobile disclosure toggle — all 12 tiles always render. |
+| tablet `640–1023px` | `max 992px`    | 2 (`repeat(2,1fr)`) | 16px | Journal is a **full-width row**; 488px tile pairs. Unaffected by the mobile disclosure toggle — all 12 tiles always render.                                                                                                                                                                                                                                 |
+| desktop `≥1024px`   | `max 1280px`   | 4 (`repeat(4,1fr)`) | 16px | Journal spans cols 1–2 **and rows 2–3** (632×~420px). Unaffected by the mobile disclosure toggle — all 12 tiles always render.                                                                                                                                                                                                                              |
 
 The main column (`.dashboard`) side padding drops to `--space-4` (16px) at
 `≥640px` (was `--space-5`/24px), and its `max-width` is raised to **1312px** at
