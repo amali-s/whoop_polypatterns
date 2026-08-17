@@ -138,6 +138,15 @@ export function DotMatrix({
       <svg
         className="dot-matrix-row"
         viewBox={`0 0 ${Math.max(dots, 1) * SLOT} ${SLOT}`}
+        // Left-align the row instead of the SVG default (`xMidYMid meet`,
+        // which centers the viewBox horizontally whenever the rendered box's
+        // aspect ratio doesn't exactly match the viewBox's — e.g. `openEnded`
+        // mode, where the viewBox reserves a fixed CYCLE_ROW_SLOTS width but
+        // only the first few dots are drawn). `xMin` pins the scaled content
+        // to the left edge of the box, matching `.dot-matrix`'s own
+        // `align-items: flex-start` and the "left aligned, not centered"
+        // requirement (2026-08-17).
+        preserveAspectRatio="xMinYMid meet"
         role="img"
         aria-labelledby={`${titleId} ${descId}`}
       >
