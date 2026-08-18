@@ -93,6 +93,15 @@ export function RangeToggle<T extends string | number>({
   // first segment and claiming a selection that isn't there.
   const selectedIndex = options.findIndex((option) => option.value === value);
 
+  // Which segment carries the group's single Tab stop (roving tabindex). Normally
+  // the selected one; but when NOTHING is selected (`value` outside `options` —
+  // e.g. 4.16, where an active custom range parks the toggle with no preset
+  // chosen), the WAI-ARIA radiogroup pattern still needs one tabbable radio or
+  // the group falls out of the tab order entirely. Falling back to the first
+  // segment keeps the toggle reachable. When a preset IS selected this equals
+  // `selectedIndex`, so the rendered tabIndex is byte-identical to before.
+  const focusableIndex = selectedIndex >= 0 ? selectedIndex : 0;
+
   return (
     <div role="radiogroup" aria-label={label} className={cx('range-toggle', className)}>
       {/* The SLIDING PILL (2026-08-01). One shared element that translates
@@ -125,7 +134,7 @@ export function RangeToggle<T extends string | number>({
             type="button"
             role="radio"
             aria-checked={selected}
-            tabIndex={selected ? 0 : -1}
+            tabIndex={index === focusableIndex ? 0 : -1}
             className={cx('range-toggle-option', selected && 'range-toggle-option-selected')}
             onClick={() => onChange(option.value)}
             onKeyDown={(event) => handleKeyDown(event, index)}

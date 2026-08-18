@@ -947,3 +947,400 @@
     transition: none;
   }
 }
+
+/* --- DateRangePicker: custom date-range calendar (Phase 4.16) --- */
+/* The trigger sits beside RangeToggle in the toggle row; its dialog reuses the
+ * Tearsheet's native-<dialog> machinery (showModal → focus trap, Escape,
+ * top-layer, inert background) but as a centred card, not a bottom sheet. The
+ * calendar grid is SVG (scaleBand geometry) with the WAI-ARIA date-grid roles
+ * layered on — see DateRangePicker.tsx. */
+
+.drpk {
+  display: inline-flex;
+}
+
+/* Aero pill in .range-toggle-option's register, box-sizing: border-box so the
+ * 2px active border doesn't resize it. Its own 44px hit area via ::after, like
+ * the toggle segments. */
+.drpk-trigger {
+  position: relative;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-4);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-inset-gloss);
+  color: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    color 0.2s,
+    transform 0.1s ease-out;
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 100%;
+    height: max(100%, 44px);
+  }
+
+  &:hover {
+    color: var(--color-accent-strong);
+    border-color: var(--color-accent);
+  }
+
+  &:active {
+    color: var(--color-accent-strong);
+    transform: scale(0.96);
+  }
+}
+
+.drpk-trigger-icon {
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+
+/* Active custom range: the same pale --color-toggle-active + 2px
+ * --color-accent-strong border the toggle's selected thumb wears (6.2b), so
+ * "custom is on" reads at a glance while the toggle shows no preset selected.
+ * The dark --color-text label is 11.97:1 on this fill, exactly as on the thumb. */
+.drpk-trigger-active {
+  border: 2px solid var(--color-accent-strong);
+  background: var(--color-toggle-active);
+  color: var(--color-text);
+  box-shadow:
+    var(--shadow-inset-gloss),
+    0 2px 6px -2px rgba(9, 102, 148, 0.35);
+
+  &:hover {
+    color: var(--color-text);
+  }
+}
+
+/* Reset the UA <dialog> box (centred card here, not the bottom sheet). */
+.drpk-dialog {
+  width: 100%;
+  max-width: min(92vw, 320px);
+  margin: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.drpk-dialog::backdrop {
+  background: rgba(15, 43, 61, 0.38); /* --color-text at low alpha, tearsheet parity */
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.drpk-panel {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--surface-gloss), var(--color-surface);
+  box-shadow: var(--shadow-card), var(--shadow-inset-gloss);
+}
+
+.drpk-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.drpk-heading {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+/* 44×44px hit target in its own right (§5.1) — no ::after extension. Mirrors
+ * .tearsheet-close. */
+.drpk-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-accent-strong);
+  font-size: var(--text-base);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    transform 0.1s ease-out;
+
+  &:hover {
+    border-color: var(--color-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  &:active {
+    border-color: var(--color-accent);
+    transform: scale(0.92);
+  }
+}
+
+/* The "Today" quick shortcut — a secondary pill, left-aligned above the grid. */
+.drpk-today {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-inset-gloss);
+  color: var(--color-accent-strong);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    transform 0.1s ease-out;
+
+  &:hover {
+    border-color: var(--color-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  &:active {
+    border-color: var(--color-accent);
+    transform: scale(0.96);
+  }
+}
+
+.drpk-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.drpk-month {
+  flex: 1;
+  text-align: center;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+/* 44×44px round nav buttons. Disabled = dimmed and non-interactive (the month
+ * is out of the selectable range); the `disabled` attribute, not colour alone,
+ * carries that to assistive tech. */
+.drpk-nav-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-accent-strong);
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    transform 0.1s ease-out;
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  &:active:not(:disabled) {
+    border-color: var(--color-accent);
+    transform: scale(0.92);
+  }
+
+  &:disabled {
+    color: var(--color-border);
+    cursor: default;
+  }
+}
+
+/* The SVG grid scales to the panel width; the viewBox aspect ratio keeps the
+ * day cells square. */
+.drpk-grid {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: manipulation;
+}
+
+.drpk-weekhead-label {
+  fill: var(--color-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--weight-semibold);
+}
+
+/* We draw our OWN focus ring (.drpk-focus-ring) rather than rely on a CSS
+ * outline painting on an SVG element, which is unreliable across engines. */
+.drpk-cell {
+  cursor: pointer;
+  outline: none;
+}
+
+.drpk-daynum {
+  fill: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+/* Default chip fill; the state modifiers below override it. */
+.drpk-chip {
+  fill: var(--color-border);
+}
+
+/* In-range days (start … today) get a faint tint — visual context for the span
+ * the trigger already names; not an interactive/selected state. */
+.drpk-cell-inrange .drpk-chip {
+  fill: #e3f2fb;
+}
+
+/* Today: the pale toggle-active fill + aria-current="date" (not colour alone). */
+.drpk-cell-today .drpk-chip {
+  fill: var(--color-toggle-active);
+}
+
+/* The picked START: strong accent-strong fill + white numeral (~6:1) +
+ * aria-selected. The focus ring sits on the white cell outside the 30px chip,
+ * so it stays visible even over this fill. */
+.drpk-cell-selected .drpk-chip {
+  fill: var(--color-accent-strong);
+}
+
+.drpk-cell-selected .drpk-daynum {
+  fill: #ffffff;
+}
+
+/* Disabled (before the 90-day floor, or in the future): dimmed, non-interactive.
+ * aria-disabled + no focus/pointer carry it beyond colour (§5.1/§5.2). */
+.drpk-cell-disabled {
+  cursor: default;
+}
+
+.drpk-cell-disabled .drpk-daynum {
+  fill: var(--color-border);
+}
+
+.drpk-focus-ring {
+  stroke: var(--color-accent);
+  stroke-width: 2;
+  opacity: 0;
+}
+
+/* :focus (not :focus-visible) so the drawn ring doesn't depend on SVG
+ * focus-visible support; the roving cell is programmatically focused, so it
+ * shows on keyboard entry and on the Today landing. */
+.drpk-cell:focus .drpk-focus-ring {
+  opacity: 1;
+}
+
+.drpk-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
+/* Fade + lift in, mirroring the Tearsheet's allow-discrete + @starting-style
+ * so the centred card animates BOTH ways; where unsupported it just appears. */
+.drpk-dialog {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity 180ms ease-out,
+    transform 180ms cubic-bezier(0.32, 0.72, 0, 1),
+    overlay 180ms allow-discrete,
+    display 180ms allow-discrete;
+}
+
+.drpk-dialog:not([open]) {
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+}
+
+@starting-style {
+  .drpk-dialog[open] {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+.drpk-dialog::backdrop {
+  opacity: 1;
+  transition:
+    opacity 160ms ease-out,
+    overlay 160ms allow-discrete,
+    display 160ms allow-discrete;
+}
+
+.drpk-dialog:not([open])::backdrop {
+  opacity: 0;
+}
+
+@starting-style {
+  .drpk-dialog[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Every pressable control here joins the file's kill switch; the popover still
+   * opens and closes, it just arrives in place (design.md §5's reduced-motion
+   * rule, the Tearsheet precedent). */
+  .drpk-trigger,
+  .drpk-close,
+  .drpk-today,
+  .drpk-nav-btn,
+  .drpk-dialog,
+  .drpk-dialog::backdrop {
+    transition: none;
+  }
+}

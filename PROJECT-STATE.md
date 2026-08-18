@@ -1,5 +1,99 @@
 # Project state
 
+## Roadmap status (Task 4.16 — custom date-range picker) — ✅ COMPLETE (every branch mock-verified in the browser; NOT live-verified on prod) (2026-08-17)
+
+**What shipped**
+
+- **`src/components/DateRangePicker.tsx` (new)** — a D3/SVG calendar popover that
+  picks an arbitrary START date; the range always ENDS today (roadmap "end
+  defaults to now"). Sits BESIDE `RangeToggle` in the toggle row, not as a third
+  segment — opening a calendar is a different interaction than the presets'
+  instant refetch. The grid is SVG (columns via `scaleBand`, the DotMatrix "SVG
+  carries the role contract" precedent), with the WAI-ARIA date-grid pattern
+  layered on: `role="grid"/"row"/"gridcell"/"columnheader"`, roving tabindex,
+  arrow/Home/End/PageUp-Down keys, Enter/Space select. Focus ring is a DRAWN 2px
+  `--color-accent` stroke on `.drpk-cell:focus` (CSS `outline` on SVG is
+  unreliable; `:focus` not `:focus-visible` so it doesn't depend on SVG
+  focus-visible support). Reuses the Tearsheet's native-`<dialog>` machinery
+  (showModal → focus trap, Escape, top-layer, inert background) as a centred
+  card; open/close gated on prefers-reduced-motion. A "Today" quick button
+  applies the 1-day range and drops focus onto today's cell.
+- **`src/lib/range-format.ts` (new)** — `formatDaySpan(start, end)` → "Aug 8 –
+  Aug 17, 2026" / "Aug 17, 2026" (1-day) / cross-year form, UTC-parsed like
+  `formatRingDay`. One formatter shared by the picker trigger and all ~8 tiles.
+- **`src/App.tsx`** — `RangeDays = 30|90` generalised to a discriminated union
+  `RangeSelection = {mode:'preset';days:RangeDays} | {mode:'custom';startDay;days}`.
+  Both arms carry `days`, so the single shared `useDailySeries(selection.days)` /
+  `useSleepStages` fetch discipline (the 4.9 rule) holds — "Today" is just
+  `{mode:'custom',startDay:today,days:1}` through the same path. `rangeWindowLabel`
+  is the one copy formatter (preset → byte-identical `last N days`/`the last N
+days`; custom → the span). `rangeAverage` computes the custom-window mean.
+- **Decision 1 (rings)** — under a custom range the ring headline becomes the
+  straight AVERAGE of recovery/strain over the SELECTED window (read from the
+  range-driven `dailySeries`, NOT the ring's own `RING_DAYS=90` fetch), zone-
+  coloured/arc-filled off that mean; the two fixed `RING_TREND_WINDOWS` averages
+  keep reading the RING_DAYS fetch, untouched. `ProgressRing` gained an optional
+  `subLabel` ("avg · Aug 8 – Aug 17, 2026"); desc says "average" so a multi-day
+  mean is never read as a single day. Preset mode unchanged (latest scored day).
+- **Decision 2 (Sleep/Calories)** — `StatDelta` gained an optional `average`
+  prop: when set (custom mode), the window average is the headline and the
+  existing value+delta output is demoted to a "Latest day: … " secondary line.
+  Preset mode passes no `average` → the 4.15 render path is untouched.
+- **`RangeToggle.tsx`** — 1-line roving-tabindex fix so the radiogroup stays
+  keyboard-reachable when NOTHING is selected (the sentinel state a custom range
+  parks it in). When a preset IS selected the rendered tabIndex is identical.
+
+**Flag decisions (all recorded in-code)**
+
+- Composition: sibling picker + `'custom'` sentinel on the toggle → no preset
+  shows selected while custom is active (thumb hidden, both `aria-checked=false`).
+- "Today" lives inside the popover; applies the 1-day range, focus → today's cell.
+- `recoveryZone()` on a multi-day mean: kept the zone colour (Decision 1), but
+  desc/subLabel name it an average — the one honest caveat (a mean hides variance).
+- Persistence: custom ranges are NOT persisted (only presets, via the untouched
+  `storeRangeDays`); a reload falls back to the last preset. Reasoning in
+  `handleCustomStart`.
+- Stayed inside `d3-time-format`/`d3-time` — no new dependency.
+
+**Constraint held: `MAX_DAYS = 90`, no server change.** Two redundant client
+guards: the picker's earliest selectable day is today − 89 (disabled IN the grid,
+not rejected after a click), and `/api/daily-series`'s existing `[1,90]` clamp is
+the fallback.
+
+**Verified (in-browser via a temporary `vite.config.ts` /api mock — the 4.1/5.3
+trick; REVERTED afterwards, `git diff vite.config.ts` empty)**
+
+- Gates: `tsc -b`, `eslint`, `typecheck:api`, `prettier --check` all pass.
+- Preset mode BYTE-IDENTICAL: `last 30 days`/`last 30 nights`, standard stat
+  deltas, latest-day rings — string-compared against the pre-4.16 copy.
+- Custom range (Aug 8–17, 10 days): all ~8 tile subtitles/captions show the span;
+  Recovery ring 61% (yellow) with "61 percent average, yellow recovery zone…";
+  Strain 11.6 avg; Sleep 6:05 avg + demoted "Latest day: 6:09 hrs · not enough
+  history…"; Calories 2,323 avg — all matched hand-computed values.
+- Calendar: opens on trigger click, focus lands on today's cell, arrow nav works
+  (17→8 via ArrowLeft), Enter selects + closes + focus returns to trigger, 14
+  future days disabled, `role`/`aria-label` per cell correct.
+
+**Still open / flagged**
+
+- **NOT live-verified on prod.** The mock proves the wiring/contract; confirm on a
+  synced account (rings averaging over a real custom window; the boundary fuzz below).
+- **Screen-reader traversal of the SVG grid — VERIFY.** Faithful `role=grid`
+  implementation, fully keyboard-operable, every cell date-labelled, but SVG
+  ARIA-grid mapping has thinner SR coverage than an HTML `<table role=grid>`. If
+  NVDA/VoiceOver can't traverse it, the cells can move to HTML `<button>`s keeping
+  the same `scaleBand` geometry (noted in the component header).
+- **≤1-day boundary fuzz.** Custom ranges are expressed as a day COUNT through the
+  unchanged endpoint (roadmap-mandated — no start/end param); the server anchors
+  its window to UTC-today while the label uses local-today, so at some times of
+  day the fetched window can differ by a day from the "Aug 8 – Aug 17" label. Same
+  fuzz the preset toggle already has; accepted.
+
+**What needs human action**
+
+- **Review, then the live check above.** Committed + pushed to `main` (auto-deploys
+  Vercel prod) at your request — this entry ships with it.
+
 ## Roadmap status (Task 6.2b — the three P0 UI/motion punch-list items) — ✅ COMPLETE (all three fixed + browser-verified at 375 / 800 / 1280px; NOT yet live-verified on prod) (2026-08-15)
 
 **Scope.** Only the three **P0** items from ROADMAP.md's 6.2b punch list (senior

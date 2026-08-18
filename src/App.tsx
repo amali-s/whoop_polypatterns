@@ -4,6 +4,7 @@ import { checkSessionWithRetry } from './session-check';
 import { Card } from './components/Card';
 import { Button } from './components/Button';
 import { RangeToggle, type RangeToggleOption } from './components/RangeToggle';
+import { DateRangePicker } from './components/DateRangePicker';
 import { ChartContainer, type ChartStatus } from './components/ChartContainer';
 import { JournalForm } from './components/JournalForm';
 import { JournalReminder } from './components/JournalReminder';
@@ -27,7 +28,8 @@ import { cycleState, type PeriodLog } from './lib/cycle';
 import { describePeriodDots, periodDotStates, periodDotStyles } from './lib/period-dots';
 // localTodayISO lived here through 5.4; it moved to src/lib/day.ts in 5.7 so
 // usePeriodLogs can share the one definition instead of copying it.
-import { localTodayISO } from './lib/day';
+import { localTodayISO, shiftDayISO, dayCountInclusive } from './lib/day';
+import { formatDaySpan } from './lib/range-format';
 import { HYDRATION_COLORS, HYDRATION_LABELS, HYDRATION_STATES } from './lib/hydration';
 import { recoveryZone } from './lib/recovery';
 import { baselineDelta, type BaselineDelta } from './lib/stats';
@@ -115,8 +117,8 @@ const SLEEP_STAGE_KEYS: StackedBarSeriesKey<SleepStageBreakdownPoint>[] = [
  * toggle drive this tile like every other range-driven one. It was pinned at a
  * fixed 30 nights before — the toggle silently didn't move it.
  */
-function SleepStagesTile({ rangeDays }: { rangeDays: RangeDays }) {
-  const stages = useSleepStages(rangeDays);
+function SleepStagesTile({ selection }: { selection: RangeSelection }) {
+  const stages = useSleepStages(selection.days);
   const points = stages.status === 'ready' ? stages.points : [];
   const status: ChartStatus =
     stages.status === 'unauthenticated' || (stages.status === 'ready' && points.length === 0)
@@ -125,13 +127,13 @@ function SleepStagesTile({ rangeDays }: { rangeDays: RangeDays }) {
   return (
     <ChartContainer
       title="Sleep stages per night"
-      subtitle={`Awake, light, deep and REM minutes — last ${rangeDays} nights`}
+      subtitle={`Awake, light, deep and REM minutes — ${rangeWindowLabel(selection, 'nights')}`}
       status={status}
       loadingLabel="Loading your sleep stages…"
       emptyMessage={
         stages.status === 'unauthenticated'
           ? 'Connect your WHOOP account to see your sleep stages.'
-          : `No sleep data in the last ${rangeDays} nights — run a sync, then refresh.`
+          : `No sleep data in ${rangeWindowLabel(selection, 'nights', true)} — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load sleep stages. Refresh to try again."
       className="bento-sleepstages range-fade"
@@ -143,7 +145,7 @@ function SleepStagesTile({ rangeDays }: { rangeDays: RangeDays }) {
         day={(p) => p.day}
         total={(p) => p.totalMinutes}
         title="Sleep stages per night"
-        tableCaption={`Sleep stage minutes per night, last ${rangeDays} nights`}
+        tableCaption={`Sleep stage minutes per night, ${rangeWindowLabel(selection, 'nights')}`}
         unit="minutes"
       />
     </ChartContainer>
@@ -208,6 +210,88 @@ const RANGE_OPTIONS: readonly RangeToggleOption<RangeDays>[] = [
 ];
 
 /**
+ * Phase 4.16 — the dashboard's range selection. `RangeDays = 30 | 90` can only
+ * name the two presets; a custom range is an arbitrary start date ending today,
+ * so a discriminated union carries both. The single `days` count each arm holds
+ * is what feeds `useDailySeries`/`useSleepStages` — one shared fetch, no second
+ * code path for custom ranges (the 4.9 no-duplicate-fetch discipline). The
+ * "Today" shortcut is just `{ mode: 'custom', startDay: today, days: 1 }`
+ * through the exact same path.
+ *
+ *   - preset: `days` is 30 or 90, exactly as through 4.15.
+ *   - custom: `startDay` is the picked ISO day; `days` = today − startDay + 1,
+ *     already clamped to [1, 90] by the picker's 89-day floor before it ever
+ *     reaches here (belt-and-suspenders with /api/daily-series's own clamp).
+ */
+export type RangeSelection =
+  | { mode: 'preset'; days: RangeDays }
+  | { mode: 'custom'; startDay: string; days: number };
+
+/**
+ * Client-side ceiling, mirroring /api/daily-series's MAX_DAYS = 90 (DECIDED
+ * 2026-08-17, do not raise). The picker's earliest selectable day is 89 before
+ * today — 89 back + today = a 90-day inclusive span — so an out-of-range day is
+ * never even clickable; the server clamp is the redundant fallback.
+ */
+const CLIENT_MAX_DAYS = 90;
+
+/** The toggle's value when a custom range is active — a sentinel outside the
+ *  30|90 options, so RangeToggle shows no preset selected (its thumb hides on a
+ *  value not in `options`). */
+const CUSTOM_RANGE = 'custom';
+
+/** Inclusive display end of a custom selection (start + days − 1). Kept off the
+ *  wall clock so the label stays consistent with the day count that was fetched
+ *  even if the tab is read later. */
+function customEndDay(sel: Extract<RangeSelection, { mode: 'custom' }>): string {
+  return shiftDayISO(sel.startDay, sel.days - 1);
+}
+
+/**
+ * The window phrase every range-driven tile names, as ONE formatter instead of
+ * the ~8 duplicated `last ${rangeDays} days` interpolations the 4.16 brief
+ * flagged. Preset output is byte-identical to 4.15 ("last 30 days"); a custom
+ * range reads as the calendar span ("Aug 8 – Aug 17, 2026"), or a single date
+ * for the 1-day "Today" case ("Aug 17, 2026"). `withArticle` supplies the
+ * "the last N" phrasing the "in the last N days" empty-state sentences need;
+ * a custom span takes no article either way.
+ */
+function rangeWindowLabel(
+  sel: RangeSelection,
+  unit: 'days' | 'nights',
+  withArticle = false,
+): string {
+  if (sel.mode === 'preset') {
+    return `${withArticle ? 'the ' : ''}last ${sel.days} ${unit}`;
+  }
+  return formatDaySpan(sel.startDay, customEndDay(sel));
+}
+
+/**
+ * Mean of a metric over the fetched points (non-null days only); null when no
+ * day in the window is scored. The custom-range headline for both the rings
+ * (Decision 1) and the stat tiles (Decision 2). A 1-day "Today" range averages
+ * a single value — which is that value — so `recoveryZone()` on it is identical
+ * to applying it to a single day's score; it is NOT gated on a minimum sample
+ * count (an honest, immediately-showable number, not a thin-data state).
+ */
+function rangeAverage(
+  points: readonly DailyMetricPoint[],
+  metric: (p: DailyMetricPoint) => number | null,
+): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const point of points) {
+    const value = metric(point);
+    if (value != null) {
+      sum += value;
+      count += 1;
+    }
+  }
+  return count === 0 ? null : sum / count;
+}
+
+/**
  * Full-width combo-chart row below the bento grid (same "Layout gap" decision
  * as SleepStagesTile — chart 4.2 has no bento slot). Drives ChartContainer's
  * status from the fetch state. Receives the shared series from App
@@ -217,10 +301,10 @@ const RANGE_OPTIONS: readonly RangeToggleOption<RangeDays>[] = [
  */
 function RecoveryStrainTile({
   series,
-  rangeDays,
+  selection,
 }: {
   series: DailySeriesState;
-  rangeDays: RangeDays;
+  selection: RangeSelection;
 }) {
   const points = series.status === 'ready' ? series.points : [];
   // buildDailySeries emits a point for EVERY day in the window (all-null on
@@ -234,13 +318,13 @@ function RecoveryStrainTile({
   return (
     <ChartContainer
       title="Recovery vs. strain"
-      subtitle={`Recovery % (left axis) and day strain (right axis) — last ${rangeDays} days`}
+      subtitle={`Recovery % (left axis) and day strain (right axis) — ${rangeWindowLabel(selection, 'days')}`}
       status={status}
       loadingLabel="Loading your recovery and strain…"
       emptyMessage={
         series.status === 'unauthenticated'
           ? 'Connect your WHOOP account to see your recovery and strain.'
-          : `No recovery or strain data in the last ${rangeDays} days — run a sync, then refresh.`
+          : `No recovery or strain data in ${rangeWindowLabel(selection, 'days', true)} — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load recovery and strain. Refresh to try again."
       className="bento-recstrain range-fade"
@@ -249,7 +333,7 @@ function RecoveryStrainTile({
       <RecoveryStrainComboChart
         data={points}
         title="Recovery vs. strain"
-        tableCaption={`Daily recovery percent and day strain, last ${rangeDays} days`}
+        tableCaption={`Daily recovery percent and day strain, ${rangeWindowLabel(selection, 'days')}`}
       />
     </ChartContainer>
   );
@@ -277,10 +361,10 @@ function RecoveryStrainTile({
  */
 function HrvBaselineTile({
   series,
-  rangeDays,
+  selection,
 }: {
   series: DailySeriesState;
-  rangeDays: RangeDays;
+  selection: RangeSelection;
 }) {
   const points = series.status === 'ready' ? series.points : [];
   const hasData = points.some((p) => p.hrvRmssdMilli != null);
@@ -297,7 +381,7 @@ function HrvBaselineTile({
       emptyMessage={
         series.status === 'unauthenticated'
           ? 'Connect your WHOOP account to see your HRV.'
-          : `No HRV data in the last ${rangeDays} days — run a sync, then refresh.`
+          : `No HRV data in ${rangeWindowLabel(selection, 'days', true)} — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load HRV. Refresh to try again."
       legend={
@@ -325,7 +409,7 @@ function HrvBaselineTile({
       <HrvBaselineComboChart
         data={points}
         title="HRV over time"
-        tableCaption={`Daily HRV in ms with a 7-day rolling baseline, last ${rangeDays} days`}
+        tableCaption={`Daily HRV in ms with a 7-day rolling baseline, ${rangeWindowLabel(selection, 'days')}`}
       />
     </ChartContainer>
   );
@@ -351,10 +435,10 @@ function HrvBaselineTile({
  */
 function RhrBaselineTile({
   series,
-  rangeDays,
+  selection,
 }: {
   series: DailySeriesState;
-  rangeDays: RangeDays;
+  selection: RangeSelection;
 }) {
   const points = series.status === 'ready' ? series.points : [];
   const hasData = points.some((p) => p.restingHeartRate != null);
@@ -371,7 +455,7 @@ function RhrBaselineTile({
       emptyMessage={
         series.status === 'unauthenticated'
           ? 'Connect your WHOOP account to see your RHR.'
-          : `No RHR data in the last ${rangeDays} days — run a sync, then refresh.`
+          : `No RHR data in ${rangeWindowLabel(selection, 'days', true)} — run a sync, then refresh.`
       }
       errorMessage="Couldn’t load RHR. Refresh to try again."
       legend={
@@ -399,7 +483,7 @@ function RhrBaselineTile({
       <RhrBaselineComboChart
         data={points}
         title="RHR over time"
-        tableCaption={`Daily RHR in BPM with a 7-day rolling baseline, last ${rangeDays} days`}
+        tableCaption={`Daily RHR in BPM with a 7-day rolling baseline, ${rangeWindowLabel(selection, 'days')}`}
       />
     </ChartContainer>
   );
@@ -436,10 +520,10 @@ function RhrBaselineTile({
  */
 function HydrationRecoveryTile({
   series,
-  rangeDays,
+  selection,
 }: {
   series: DailySeriesState;
-  rangeDays: RangeDays;
+  selection: RangeSelection;
 }) {
   const points = series.status === 'ready' ? series.points : [];
   // `!= null` and not a truthiness check: an answered `hydrated: false` is a
@@ -452,13 +536,13 @@ function HydrationRecoveryTile({
   return (
     <ChartContainer
       title="Hydration vs. recovery"
-      subtitle={`One dot per day — dot height is your recovery zone, dot color is what you logged for hydration (last ${rangeDays} days)`}
+      subtitle={`One dot per day — dot height is your recovery zone, dot color is what you logged for hydration (${rangeWindowLabel(selection, 'days')})`}
       status={status}
       loadingLabel="Loading your hydration and recovery…"
       emptyMessage={
         series.status === 'unauthenticated'
           ? 'Connect your WHOOP account to compare your journal against your recovery.'
-          : `No recovery or journal data in the last ${rangeDays} days — run a sync and log a day, then refresh.`
+          : `No recovery or journal data in ${rangeWindowLabel(selection, 'days', true)} — run a sync and log a day, then refresh.`
       }
       errorMessage="Couldn’t load hydration and recovery. Refresh to try again."
       className="bento-hydration range-fade"
@@ -501,7 +585,7 @@ function HydrationRecoveryTile({
       <HydrationRecoveryDotMatrix
         data={points}
         title="Hydration vs. recovery"
-        tableCaption={`Hydration logged and WHOOP recovery per day, last ${rangeDays} days`}
+        tableCaption={`Hydration logged and WHOOP recovery per day, ${rangeWindowLabel(selection, 'days')}`}
       />
     </ChartContainer>
   );
@@ -523,7 +607,13 @@ function HydrationRecoveryTile({
  * 401/no session only. (buildDailySeries emits a point for every day in the
  * window, so `points.length === 0` never means "no data" either.)
  */
-function SkinTempTile({ series, rangeDays }: { series: DailySeriesState; rangeDays: RangeDays }) {
+function SkinTempTile({
+  series,
+  selection,
+}: {
+  series: DailySeriesState;
+  selection: RangeSelection;
+}) {
   const points = series.status === 'ready' ? series.points : [];
   const status: ChartStatus = series.status === 'unauthenticated' ? 'empty' : series.status;
   // No bodyHeight on the container: the Sparkline owns its 64px plot height
@@ -541,8 +631,8 @@ function SkinTempTile({ series, rangeDays }: { series: DailySeriesState; rangeDa
       <Sparkline
         data={points}
         title="Skin temp over time"
-        tableCaption={`Daily skin temperature in °C, last ${rangeDays} days`}
-        noDataCaption={`no readings in the last ${rangeDays} days — skin temp needs WHOOP 4.0 or newer`}
+        tableCaption={`Daily skin temperature in °C, ${rangeWindowLabel(selection, 'days')}`}
+        noDataCaption={`no readings in ${rangeWindowLabel(selection, 'days', true)} — skin temp needs WHOOP 4.0 or newer`}
       />
     </ChartContainer>
   );
@@ -684,12 +774,18 @@ function latestScoredSlice<T extends { day: string }>(
  * rings already had (their `<desc>`), just visible instead of aria-only,
  * since StatDelta has no desc channel to put it in.
  */
-function SleepStatTile({ series, rangeDays }: { series: DailySeriesState; rangeDays: RangeDays }) {
+function SleepStatTile({
+  series,
+  selection,
+}: {
+  series: DailySeriesState;
+  selection: RangeSelection;
+}) {
   const points = series.status === 'ready' ? series.points : [];
   const sleepPoints = latestScoredSlice(points, (p) => p.totalSleepMilli);
   const delta = sleepPoints
     ? baselineDelta(sleepPoints, (p) => p.totalSleepMilli, {
-        windowDays: rangeDays,
+        windowDays: selection.days,
         minSamples: BASELINE_MIN_SAMPLES,
         excludeToday: true,
       })
@@ -702,6 +798,15 @@ function SleepStatTile({ series, rangeDays }: { series: DailySeriesState; rangeD
   const sleepDay = sleepPoints ? sleepPoints[sleepPoints.length - 1].day : null;
   const asOfLabel =
     sleepDay && sleepDay !== trueToday ? `As of ${formatRingDay(sleepDay)}` : undefined;
+  // 4.16 Decision 2: under a custom range the PERIOD AVERAGE becomes the
+  // headline and the delta above is demoted to a secondary line. Preset mode
+  // passes no `average`, so StatDelta renders exactly as through 4.15.
+  const sleepAvg =
+    selection.mode === 'custom' ? rangeAverage(points, (p) => p.totalSleepMilli) : null;
+  const average =
+    sleepAvg == null
+      ? undefined
+      : { value: sleepAvg, contextLabel: `avg · ${rangeWindowLabel(selection, 'nights')}` };
   return (
     <ChartContainer
       className="bento-sleep range-fade"
@@ -719,6 +824,7 @@ function SleepStatTile({ series, rangeDays }: { series: DailySeriesState; rangeD
         noValueCaption="no sleep recorded yet"
         noBaselineCaption="not enough history yet for an average"
         asOfLabel={asOfLabel}
+        average={average}
       />
     </ChartContainer>
   );
@@ -732,17 +838,24 @@ function SleepStatTile({ series, rangeDays }: { series: DailySeriesState; rangeD
  */
 function CaloriesStatTile({
   series,
-  rangeDays,
+  selection,
 }: {
   series: DailySeriesState;
-  rangeDays: RangeDays;
+  selection: RangeSelection;
 }) {
   const points = series.status === 'ready' ? series.points : [];
   const delta = baselineDelta(points, (p) => p.kilojoule, {
-    windowDays: rangeDays,
+    windowDays: selection.days,
     minSamples: BASELINE_MIN_SAMPLES,
     excludeToday: true,
   });
+  // 4.16 Decision 2 — custom-range period average as the headline (see the
+  // Sleep tile). Preset mode passes no `average` and is byte-identical to 4.15.
+  const caloriesAvg = selection.mode === 'custom' ? rangeAverage(points, (p) => p.kilojoule) : null;
+  const average =
+    caloriesAvg == null
+      ? undefined
+      : { value: caloriesAvg, contextLabel: `avg · ${rangeWindowLabel(selection, 'days')}` };
   return (
     <ChartContainer
       className="bento-calories range-fade"
@@ -759,6 +872,7 @@ function CaloriesStatTile({
         deltaUnit="cal"
         noValueCaption="today’s calories aren’t in yet"
         noBaselineCaption="not enough history yet for an average"
+        average={average}
       />
     </ChartContainer>
   );
@@ -913,13 +1027,38 @@ function ringStatus(series: DailySeriesState): ChartStatus {
  * Below the ring: a 1-month and a 3-month trailing average of RECOVERY, with
  * the same ▲/▼ indicator the Sleep stat tile uses (TrendIndicator).
  */
-function RecoveryRingTile({ series }: { series: DailySeriesState }) {
+function RecoveryRingTile({
+  series,
+  rangeSeries,
+  selection,
+}: {
+  series: DailySeriesState;
+  rangeSeries: DailySeriesState;
+  selection: RangeSelection;
+}) {
   const points = series.status === 'ready' ? series.points : [];
   const latest = series.status === 'ready' ? latestScored(points, (p) => p.recoveryScore) : null;
-  const zone = latest ? recoveryZone(latest.value) : null;
   // Recovery compared against RECOVERY's own trailing averages. The two ring
-  // tiles never cross-wire: each reads the field it displays.
+  // tiles never cross-wire: each reads the field it displays. These read the
+  // fixed RING_DAYS=90 fetch (`series`) ALWAYS — the custom range must not move
+  // them (Decision 1: the two trailing windows stay fixed).
   const trends = ringTrends(points, (p) => p.recoveryScore);
+
+  // 4.16 Decision 1: under a custom range the headline is a straight AVERAGE of
+  // recovery over the SELECTED window — read from the range-driven fetch
+  // (`rangeSeries`), not the ring's own RING_DAYS fetch — zone-coloured and
+  // arc-filled off that mean. Preset mode keeps the latest-scored-day headline
+  // untouched. A multi-day mean is still a 0–100 percentage, so `recoveryZone`
+  // buckets it into the same red/yellow/green bands; the desc/subLabel say
+  // "average" so the mean is never mistaken for a single day's score (its one
+  // honest caveat — a mean can hide variance).
+  const isCustom = selection.mode === 'custom';
+  const rangePoints = rangeSeries.status === 'ready' ? rangeSeries.points : [];
+  const customAvg = isCustom ? rangeAverage(rangePoints, (p) => p.recoveryScore) : null;
+  const headline = isCustom ? customAvg : latest ? latest.value : null;
+  const zone = headline != null ? recoveryZone(headline) : null;
+  const spanLabel = isCustom ? rangeWindowLabel(selection, 'days') : null;
+
   return (
     <ChartContainer
       className="bento-recovery"
@@ -929,12 +1068,17 @@ function RecoveryRingTile({ series }: { series: DailySeriesState }) {
       emptyMessage="Connect your WHOOP account to see your recovery."
       errorMessage="Couldn’t load recovery. Refresh to try again."
     >
-      {latest && zone ? (
+      {headline != null && zone ? (
         <ProgressRing
-          fraction={latest.value / 100}
+          fraction={headline / 100}
           title="Recovery"
-          desc={`${Math.round(latest.value)} percent, ${zone.name} zone, ${formatRingDay(latest.day)}.`}
-          valueLabel={`${Math.round(latest.value)}%`}
+          desc={
+            isCustom
+              ? `${Math.round(headline)} percent average, ${zone.name} recovery zone, ${spanLabel}.`
+              : `${Math.round(headline)} percent, ${zone.name} zone, ${latest ? formatRingDay(latest.day) : ''}.`
+          }
+          valueLabel={`${Math.round(headline)}%`}
+          subLabel={isCustom && spanLabel ? `avg · ${spanLabel}` : undefined}
           progressColor={zone.color}
         />
       ) : (
@@ -946,11 +1090,27 @@ function RecoveryRingTile({ series }: { series: DailySeriesState }) {
 }
 
 /** Bento strain tile (§4: `strain` on WHOOP's 0–21 scale, chart-5 azure). */
-function StrainRingTile({ series }: { series: DailySeriesState }) {
+function StrainRingTile({
+  series,
+  rangeSeries,
+  selection,
+}: {
+  series: DailySeriesState;
+  rangeSeries: DailySeriesState;
+  selection: RangeSelection;
+}) {
   const points = series.status === 'ready' ? series.points : [];
   const latest = series.status === 'ready' ? latestScored(points, (p) => p.strain) : null;
-  // Strain vs. STRAIN's own averages — never recovery's.
+  // Strain vs. STRAIN's own averages — never recovery's. Fixed RING_DAYS fetch.
   const trends = ringTrends(points, (p) => p.strain);
+  // 4.16 Decision 1: custom range → average day strain over the selected window
+  // (from `rangeSeries`); preset → latest scored day. Strain has no zone, so the
+  // average just fills the arc; the subLabel/desc name it as an average.
+  const isCustom = selection.mode === 'custom';
+  const rangePoints = rangeSeries.status === 'ready' ? rangeSeries.points : [];
+  const customAvg = isCustom ? rangeAverage(rangePoints, (p) => p.strain) : null;
+  const headline = isCustom ? customAvg : latest ? latest.value : null;
+  const spanLabel = isCustom ? rangeWindowLabel(selection, 'days') : null;
   return (
     <ChartContainer
       className="bento-strain"
@@ -960,17 +1120,22 @@ function StrainRingTile({ series }: { series: DailySeriesState }) {
       emptyMessage="Connect your WHOOP account to see your strain."
       errorMessage="Couldn’t load strain. Refresh to try again."
     >
-      {latest ? (
+      {headline != null ? (
         <ProgressRing
-          fraction={latest.value / STRAIN_SCALE_MAX}
+          fraction={headline / STRAIN_SCALE_MAX}
           // Floor the ARC (not the number) at the 0.9-strain equivalent so a
           // low-strain day reads as "a little fill" rather than an empty ring;
           // derived from STRAIN_SCALE_MAX so it tracks the scale, not a magic
           // fraction. valueLabel/desc below still state the true, un-floored value.
           minFraction={0.9 / STRAIN_SCALE_MAX}
           title="Strain"
-          desc={`${latest.value.toFixed(1)} of ${STRAIN_SCALE_MAX} day strain, ${formatRingDay(latest.day)}.`}
-          valueLabel={latest.value.toFixed(1)}
+          desc={
+            isCustom
+              ? `${headline.toFixed(1)} of ${STRAIN_SCALE_MAX} average day strain, ${spanLabel}.`
+              : `${headline.toFixed(1)} of ${STRAIN_SCALE_MAX} day strain, ${latest ? formatRingDay(latest.day) : ''}.`
+          }
+          valueLabel={headline.toFixed(1)}
+          subLabel={isCustom && spanLabel ? `avg · ${spanLabel}` : undefined}
           progressColor="var(--color-chart-5)"
         />
       ) : (
@@ -1402,19 +1567,33 @@ function App() {
   // Manual "Sync now" (see handleSyncNow). Kept in App because the button sits
   // in the header, next to the connection chip it depends on.
   const [syncState, setSyncState] = useState<ManualSyncState>('idle');
-  // Selected dashboard window (4.14), restored from localStorage during the
+  // Local calendar-today, computed once per render — the range's fixed end and
+  // the picker's latest selectable day (4.16).
+  const today = localTodayISO();
+  // Selected dashboard window. Generalised from a bare `RangeDays` in 4.16 to a
+  // discriminated union that can also hold a custom start-date range (see
+  // RangeSelection); the preset arm is restored from localStorage during the
   // first render rather than in an effect — an effect would flash the 30-day
   // view and fire a second, immediately-superseded fetch for anyone on 90.
-  const [rangeDays, setRangeDays] = useState<RangeDays>(readStoredRangeDays);
+  // A custom range is deliberately NOT persisted (see handleCustomStart).
+  const [selection, setSelection] = useState<RangeSelection>(() => ({
+    mode: 'preset',
+    days: readStoredRangeDays(),
+  }));
   // One fetch feeds both ring tiles (see RecoveryRingTile's comment). RING_DAYS
-  // stays fixed at 7 — the toggle does not touch the rings (4.14 scope).
+  // (90) is fixed — the toggle does not touch the rings' latest-day headline or
+  // their two fixed trailing averages (4.14/4.16 Decision 1).
   const ringSeries = useDailySeries(RING_DAYS);
   // One range-driven fetch feeds RecoveryStrainTile, HrvBaselineTile,
   // SkinTempTile and both stat cards — same no-duplicate-fetch rule, different
-  // window than the rings. useDailySeries keys its effect on `days`, so
-  // flipping the toggle refetches; per that hook's comment the previous points
-  // linger until the new response lands (no loading flash, no cleared tiles).
-  const dailySeries = useDailySeries(rangeDays);
+  // window than the rings. `selection.days` (both union arms carry it) is the
+  // single day count fed in, so a custom range flows through this one path with
+  // no second fetch. useDailySeries keys its effect on `days`, so changing the
+  // selection refetches; per that hook's comment the previous points linger
+  // until the new response lands (no loading flash, no cleared tiles). Under a
+  // custom range this same series also drives the rings' average headline
+  // (Decision 1) and the stat tiles' average headline (Decision 2).
+  const dailySeries = useDailySeries(selection.days);
 
   // P1 (2026-08-15) — range-change transition. Flipping the toggle used to
   // just snap every range-driven tile straight to its new data with no
@@ -1462,10 +1641,32 @@ function App() {
     setRangeFading(false);
   }
 
-  /** Apply a new range and persist it. Single place the two stay in sync. */
-  function handleRangeChange(next: RangeDays): void {
-    setRangeDays(next);
+  /** Apply a PRESET range (30/90) and persist it — single place the selection
+   *  and the stored value stay in sync. Persisting only presets keeps
+   *  `readStoredRangeDays`/`storeRangeDays` on their existing 30|90 contract. */
+  function handlePresetChange(next: RangeDays): void {
+    setSelection({ mode: 'preset', days: next });
     storeRangeDays(next);
+    setRangeFading(true);
+  }
+
+  /**
+   * Apply a CUSTOM range: [startDay, today], expressed as a plain inclusive day
+   * count for the shared fetch (the roadmap's confirmed shape — no start/end
+   * query param on /api/daily-series). `startDay` is already floored to
+   * today − 89 by the picker, so `days` is in [1, 90].
+   *
+   * NOT PERSISTED (flagged decision, 4.16). A custom range is inherently
+   * relative to "today"; every way to persist it surprises on reload — re-
+   * anchoring the start silently grows the span, a sliding window re-runs a
+   * different window, and "Today" stops meaning today, while the 90-day floor
+   * can go stale as days pass. So a reload falls back to the last PRESET (which
+   * `storeRangeDays` still holds), the dashboard's sensible daily-glance steady
+   * state; the custom range lives in memory only. This also leaves the storage
+   * helpers untouched, so preset persistence is byte-identical to 4.15.
+   */
+  function handleCustomStart(startDay: string): void {
+    setSelection({ mode: 'custom', startDay, days: dayCountInclusive(startDay, today) });
     setRangeFading(true);
   }
 
@@ -1665,11 +1866,33 @@ function App() {
             locked grid-template-areas. This placement is purely additive and
             reversible — nothing in the bento grid changed to accommodate it. */}
         <div className="range-toggle-row">
-          <RangeToggle
+          <RangeToggle<RangeDays | typeof CUSTOM_RANGE>
             label="Dashboard time range"
             options={RANGE_OPTIONS}
-            value={rangeDays}
-            onChange={handleRangeChange}
+            // A custom range parks the toggle on the 'custom' sentinel, which is
+            // outside its options — so no preset segment reads as selected (the
+            // picker's trigger carries the active state instead).
+            value={selection.mode === 'preset' ? selection.days : CUSTOM_RANGE}
+            onChange={(next) => {
+              // The toggle only ever emits one of its two preset option values;
+              // 'custom' is display-only, set by the picker, never a clickable
+              // segment. The guard is a type-narrow, not a reachable branch.
+              if (next !== CUSTOM_RANGE) {
+                handlePresetChange(next);
+              }
+            }}
+          />
+          {/* 4.16 — the custom date-range picker, a sibling of the toggle rather
+              than a third segment inside it (opening a calendar is a different
+              interaction than the presets' immediate refetch). It floors the
+              earliest selectable day at today − 89 (a 90-day inclusive span =
+              /api/daily-series's MAX_DAYS), the client half of the redundant
+              90-day cap. */}
+          <DateRangePicker
+            activeStart={selection.mode === 'custom' ? selection.startDay : null}
+            today={today}
+            minDay={shiftDayISO(today, -(CLIENT_MAX_DAYS - 1))}
+            onSelect={handleCustomStart}
           />
         </div>
 
@@ -1689,19 +1912,19 @@ function App() {
 
           <JournalTile />
 
-          <RecoveryRingTile series={ringSeries} />
+          <RecoveryRingTile series={ringSeries} rangeSeries={dailySeries} selection={selection} />
 
-          <SleepStatTile series={dailySeries} rangeDays={rangeDays} />
+          <SleepStatTile series={dailySeries} selection={selection} />
 
-          <CaloriesStatTile series={dailySeries} rangeDays={rangeDays} />
+          <CaloriesStatTile series={dailySeries} selection={selection} />
 
-          <StrainRingTile series={ringSeries} />
+          <StrainRingTile series={ringSeries} rangeSeries={dailySeries} selection={selection} />
 
-          <SkinTempTile series={dailySeries} rangeDays={rangeDays} />
+          <SkinTempTile series={dailySeries} selection={selection} />
 
-          <HrvBaselineTile series={dailySeries} rangeDays={rangeDays} />
+          <HrvBaselineTile series={dailySeries} selection={selection} />
 
-          <RhrBaselineTile series={dailySeries} rangeDays={rangeDays} />
+          <RhrBaselineTile series={dailySeries} selection={selection} />
 
           {/* P2 (2026-08-15) — mobile-only progressive-disclosure toggle for
               the three tiles below. `.bento-disclosure-row` is display:none
@@ -1731,11 +1954,11 @@ function App() {
               P2 (2026-08-15): also the three tiles the mobile disclosure
               toggle above hides/reveals — see `.bento-grid[data-secondary-
               collapsed]` in App.css. Unaffected at 640px+. */}
-          <SleepStagesTile rangeDays={rangeDays} />
+          <SleepStagesTile selection={selection} />
 
-          <RecoveryStrainTile series={dailySeries} rangeDays={rangeDays} />
+          <RecoveryStrainTile series={dailySeries} selection={selection} />
 
-          <HydrationRecoveryTile series={dailySeries} rangeDays={rangeDays} />
+          <HydrationRecoveryTile series={dailySeries} selection={selection} />
         </section>
       </main>
     </>

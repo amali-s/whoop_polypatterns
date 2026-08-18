@@ -134,6 +134,13 @@
  * children, so no margin is set here. */
 .range-toggle-row {
   display: flex;
+  /* 4.16: the toggle + the custom-range picker sit together, right-aligned.
+   * `wrap` lets the picker drop to its own right-aligned line on a narrow phone
+   * rather than forcing horizontal overflow; `align-items: center` keeps the
+   * two pills' baselines level when they share a line. */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   justify-content: flex-end;
   width: 100%;
   max-width: 640px;

@@ -63,6 +63,62 @@ export interface StatDeltaProps {
    * nothing to date when kind is 'no-value'.
    */
   asOfLabel?: string;
+  /**
+   * Phase 4.16 Decision 2 — a custom date range's PERIOD AVERAGE. When present,
+   * this average becomes the headline (formatted with `formatValue`, exactly
+   * like the single value normally is) and the existing value+delta output is
+   * demoted to a smaller "latest day" context line beneath. `contextLabel` names
+   * the window ("avg · Aug 8 – Aug 17, 2026").
+   *
+   * EXTENDED rather than wrapped: the whole component is one value + one
+   * secondary line, so the average headline is the same shape with a different
+   * primary — a sibling wrapper would have to re-implement the three delta kinds
+   * to render the secondary. Undefined in preset (30/90) mode, where the code
+   * below the `if (average)` branch is untouched and byte-identical to 4.15.
+   */
+  average?: { value: number; contextLabel: string };
+}
+
+/**
+ * The "latest day" delta as a COMPACT secondary line under a custom-range
+ * average headline (4.16). Mirrors the primary sentence logic exactly (same
+ * rounded-magnitude direction rule) but prefixed to say it is the latest day,
+ * not the window — so two averages in one tile (the headline window average and
+ * "your recent average") can't be mistaken for each other. `no-value` renders
+ * nothing: with no latest value there is no delta to contextualise.
+ */
+function DeltaSecondary({
+  delta,
+  formatValue,
+  deltaToDisplay,
+  deltaUnit,
+  noBaselineCaption,
+}: Pick<
+  StatDeltaProps,
+  'delta' | 'formatValue' | 'deltaToDisplay' | 'deltaUnit' | 'noBaselineCaption'
+>) {
+  if (delta.kind === 'no-value') {
+    return null;
+  }
+  if (delta.kind === 'no-baseline') {
+    return (
+      <p className="stat-delta-trend stat-delta-trend-compact">
+        Latest day: {formatValue(delta.value)} · {noBaselineCaption}
+      </p>
+    );
+  }
+  const magnitude = deltaToDisplay(Math.abs(delta.delta));
+  const above = delta.delta > 0;
+  const sentence =
+    magnitude === 0
+      ? 'in line with your recent average'
+      : `${magnitude} ${deltaUnit} ${above ? 'above' : 'below'} your recent average`;
+  return (
+    <p className="stat-delta-trend stat-delta-trend-compact">
+      <TrendArrow direction={magnitude === 0 ? null : above ? 'up' : 'down'} />
+      Latest day: {formatValue(delta.value)} · {sentence}
+    </p>
+  );
 }
 
 export function StatDelta({
@@ -73,7 +129,29 @@ export function StatDelta({
   noValueCaption,
   noBaselineCaption,
   asOfLabel,
+  average,
 }: StatDeltaProps) {
+  // 4.16 Decision 2: a custom range shows the window average as the headline,
+  // with the existing value+delta output kept as a smaller secondary line. This
+  // branch is reached ONLY when the caller passes `average` (custom mode); the
+  // preset paths below are untouched.
+  if (average) {
+    return (
+      <div className="stat-delta">
+        <p className="stat-delta-value">{formatValue(average.value)}</p>
+        <p className="stat-delta-asof">{average.contextLabel}</p>
+        <DeltaSecondary
+          delta={delta}
+          formatValue={formatValue}
+          deltaToDisplay={deltaToDisplay}
+          deltaUnit={deltaUnit}
+          noBaselineCaption={noBaselineCaption}
+        />
+        {asOfLabel && <p className="stat-delta-asof">{asOfLabel}</p>}
+      </div>
+    );
+  }
+
   if (delta.kind === 'no-value') {
     return (
       <div className="stat-delta">

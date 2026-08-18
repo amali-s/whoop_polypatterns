@@ -44,6 +44,15 @@ export interface ProgressRingProps {
   desc: string;
   /** Centered display value — real text, never color-only (rule 4). */
   valueLabel: string;
+  /**
+   * Phase 4.16 — a small visible line under the centered value, e.g.
+   * "avg · Aug 8 – Aug 17, 2026" when a custom range makes the headline a
+   * period average rather than the latest scored day. aria-hidden: the `desc`
+   * already states the average and its span in the accessible channel, so this
+   * is the sighted-user copy of the same fact (the noData caption precedent).
+   * Undefined in preset mode → renders nothing → byte-identical to 4.15.
+   */
+  subLabel?: string;
   /** Arc color. Fill-safe tokens only — zone hues are non-text-safe (§5.1). */
   progressColor?: string;
   trackColor?: string;
@@ -59,6 +68,7 @@ export function ProgressRing({
   title,
   desc,
   valueLabel,
+  subLabel,
   progressColor = 'var(--color-accent)',
   trackColor = 'var(--color-border)',
   noData = false,
@@ -160,6 +170,14 @@ export function ProgressRing({
       {noData && (
         <p className="progress-ring-caption" aria-hidden="true">
           no data yet
+        </p>
+      )}
+      {/* 4.16 custom-range average context. aria-hidden for the same reason as
+          the noData caption — the <desc> already carries it. Not shown in the
+          noData state (nothing to average). */}
+      {!noData && subLabel && (
+        <p className="progress-ring-caption" aria-hidden="true">
+          {subLabel}
         </p>
       )}
     </div>

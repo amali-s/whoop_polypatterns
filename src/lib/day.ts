@@ -33,3 +33,16 @@ export function shiftDayISO(day: string, days: number): string {
   const shifted = new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000);
   return shifted.toISOString().slice(0, 10);
 }
+
+/**
+ * Inclusive calendar-day span between two ISO 'YYYY-MM-DD' days — the day COUNT
+ * the /api/daily-series `?days=` param wants (Phase 4.16). `start === end` is 1,
+ * "Aug 8 to Aug 17" is 10. Same UTC exactness as `shiftDayISO`: subtracting two
+ * UTC-midnight instants makes every day exactly 86_400_000 ms, so no DST
+ * transition can push the count off by one.
+ */
+export function dayCountInclusive(startDay: string, endDay: string): number {
+  const start = Date.parse(`${startDay}T00:00:00Z`);
+  const end = Date.parse(`${endDay}T00:00:00Z`);
+  return Math.round((end - start) / 86_400_000) + 1;
+}
