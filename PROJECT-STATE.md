@@ -1,6 +1,6 @@
 # Project state
 
-## Roadmap status (Task 4.16 — custom date-range picker) — ✅ COMPLETE (every branch mock-verified in the browser; NOT live-verified on prod) (2026-08-17)
+## Roadmap status (Task 4.16 — custom date-range picker) — ✅ COMPLETE (mock-verified + LIVE-VERIFIED on prod — custom ranges user-confirmed 2026-08-18) (2026-08-17)
 
 **What shipped**
 
@@ -76,8 +76,11 @@ trick; REVERTED afterwards, `git diff vite.config.ts` empty)**
 
 **Still open / flagged**
 
-- **NOT live-verified on prod.** The mock proves the wiring/contract; confirm on a
-  synced account (rings averaging over a real custom window; the boundary fuzz below).
+- **LIVE-VERIFIED on prod (user-confirmed, 2026-08-18).** Amaya tested custom
+  ranges on the deployed dashboard against her real synced WHOOP account data —
+  the range-driven tiles and the custom-range averages (Decision 1 rings,
+  Decision 2 stat cards) render against a real window as designed. Closes the
+  standing "mock-verified only" residual this entry had carried since it shipped.
 - **Screen-reader traversal of the SVG grid — VERIFIED SOUND at the a11y-tree
   level (2026-08-18); no rework needed.** Inspected the Chromium accessibility
   tree (what NVDA/VoiceOver consume via the platform AX APIs) with the picker
@@ -104,12 +107,12 @@ trick; REVERTED afterwards, `git diff vite.config.ts` empty)**
 
 **What needs human action**
 
-- **Review, then the live check above.** The initial 4.16 work is committed +
-  pushed to `main` (auto-deploys Vercel prod). A follow-up commit (2026-08-18)
-  adds the grid `aria-rowcount`/`aria-colcount`/`aria-rowindex` hardening and
-  this a11y-verification note. Remaining is the live-on-prod check (real synced
-  account: custom-range averages + boundary label) and, optionally, a real-AT
-  smoke test of the calendar.
+- **Nothing blocking — 4.16 is done and live-verified.** All three commits are on
+  `main` (auto-deploys Vercel prod): the feature (`9e4bb98`), the a11y-tree
+  verification + `aria-row/col` hardening (`ca191f6`), and this live-verification
+  note. The only remaining item is optional: a real-AT smoke test of the calendar
+  (NVDA/VoiceOver) — the a11y tree is already sound, so it's confirmation, not a
+  likely fix.
 
 ## Roadmap status (Task 6.2b — the three P0 UI/motion punch-list items) — ✅ COMPLETE (all three fixed + browser-verified at 375 / 800 / 1280px; NOT yet live-verified on prod) (2026-08-15)
 
