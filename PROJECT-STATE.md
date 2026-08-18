@@ -78,11 +78,24 @@ trick; REVERTED afterwards, `git diff vite.config.ts` empty)**
 
 - **NOT live-verified on prod.** The mock proves the wiring/contract; confirm on a
   synced account (rings averaging over a real custom window; the boundary fuzz below).
-- **Screen-reader traversal of the SVG grid — VERIFY.** Faithful `role=grid`
-  implementation, fully keyboard-operable, every cell date-labelled, but SVG
-  ARIA-grid mapping has thinner SR coverage than an HTML `<table role=grid>`. If
-  NVDA/VoiceOver can't traverse it, the cells can move to HTML `<button>`s keeping
-  the same `scaleBand` geometry (noted in the component header).
+- **Screen-reader traversal of the SVG grid — VERIFIED SOUND at the a11y-tree
+  level (2026-08-18); no rework needed.** Inspected the Chromium accessibility
+  tree (what NVDA/VoiceOver consume via the platform AX APIs) with the picker
+  open: the SVG grid maps to a textbook date-grid — `grid` named "August 2026"
+  (via `aria-labelledby`) → a header `row` of seven `columnheader`s
+  ("Sunday"…"Saturday") → week `row`s of `gridcell`s each named with its full
+  date ("Saturday, August 8, 2026"); the 13 future days carry `aria-disabled`
+  - `tabindex="-1"` and are never the roving target; the `<dialog>` reports
+    `:modal` (background inert), same as the shipped Tearsheet. So the earlier
+    caution about SVG ARIA-grid coverage did not bear out here — the roles ARE
+    surfaced correctly, and the HTML-`<button>` fallback is NOT warranted (it would
+    trade away the roadmap-requested D3/SVG grid for no measured gain). While
+    verifying, hardened the grid to be position-complete: added `aria-rowcount`/
+    `aria-colcount` on the grid and `aria-rowindex` on each row (it already had
+    `aria-colindex` per cell), so a reader announces "…, row 3, column 7". The one
+    remaining SR item is a real-AT smoke test on prod (NVDA on Windows / VoiceOver
+    on macOS) — nice-to-have, low-risk given the tree is sound; the browser here
+    can't drive a real screen reader.
 - **≤1-day boundary fuzz.** Custom ranges are expressed as a day COUNT through the
   unchanged endpoint (roadmap-mandated — no start/end param); the server anchors
   its window to UTC-today while the label uses local-today, so at some times of
@@ -91,8 +104,12 @@ trick; REVERTED afterwards, `git diff vite.config.ts` empty)**
 
 **What needs human action**
 
-- **Review, then the live check above.** Committed + pushed to `main` (auto-deploys
-  Vercel prod) at your request — this entry ships with it.
+- **Review, then the live check above.** The initial 4.16 work is committed +
+  pushed to `main` (auto-deploys Vercel prod). A follow-up commit (2026-08-18)
+  adds the grid `aria-rowcount`/`aria-colcount`/`aria-rowindex` hardening and
+  this a11y-verification note. Remaining is the live-on-prod check (real synced
+  account: custom-range averages + boundary label) and, optionally, a real-AT
+  smoke test of the calendar.
 
 ## Roadmap status (Task 6.2b — the three P0 UI/motion punch-list items) — ✅ COMPLETE (all three fixed + browser-verified at 375 / 800 / 1280px; NOT yet live-verified on prod) (2026-08-15)
 

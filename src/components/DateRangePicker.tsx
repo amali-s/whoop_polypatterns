@@ -355,9 +355,14 @@ export function DateRangePicker({
             viewBox={`0 0 ${GRID_W} ${svgHeight}`}
             role="grid"
             aria-labelledby={monthLabelId}
+            // Full grid dimensions so a screen reader can announce a cell's
+            // position (row 1 is the weekday header, rows 2..N the weeks; the
+            // seven weekday columns). aria-colindex is on every cell/header.
+            aria-rowcount={rows + 1}
+            aria-colcount={7}
             onKeyDown={handleGridKeyDown}
           >
-            <g className="drpk-weekhead" role="row">
+            <g className="drpk-weekhead" role="row" aria-rowindex={1}>
               {WEEKDAYS.map((wd, col) => (
                 <text
                   key={wd.short}
@@ -376,7 +381,9 @@ export function DateRangePicker({
             </g>
 
             {Array.from({ length: rows }, (_, row) => (
-              <g key={row} role="row">
+              // +2: row 1 is the weekday header row above, so the first week is
+              // grid row 2 (aria-rowindex is 1-based).
+              <g key={row} role="row" aria-rowindex={row + 2}>
                 {Array.from({ length: 7 }, (_, col) => {
                   const dayIndex = row * 7 + col - firstWeekday; // 0-based day-of-month
                   if (dayIndex < 0 || dayIndex >= numDays) {
