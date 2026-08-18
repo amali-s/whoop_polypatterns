@@ -757,16 +757,25 @@ function latestScoredSlice<T extends { day: string }>(
  * Value in h:mm, delta in whole minutes vs. the trailing baseline. Shares App's
  * 30-day fetch via a prop — no second useDailySeries call.
  *
- * FALLBACK (changed 2026-07-21, at your direction): unlike Calories, Sleep
- * does NOT strictly require the calendar-today row. WHOOP scores sleep and
- * Recovery from the same overnight session at the same moment on waking, and
- * both are already fetched in the identical daily sync pass — so Sleep now
- * scans backward for the latest scored night exactly like `latestScored` does
- * for the Recovery/Strain rings below, instead of going blank whenever the
- * sync for today's calendar date hasn't landed yet. Calories deliberately
- * keeps the strict today-only check: it accrues live through the day, so
- * today being null there is a genuinely different, still-true state, not just
- * a sync-lag artifact.
+ * FALLBACK (Sleep since 2026-07-21, at your direction): Sleep does NOT strictly
+ * require the calendar-today row. WHOOP scores sleep and Recovery from the same
+ * overnight session at the same moment on waking, and both are already fetched
+ * in the identical daily sync pass — so Sleep scans backward for the latest
+ * scored night exactly like `latestScored` does for the Recovery/Strain rings
+ * below, instead of going blank whenever the sync for today's calendar date
+ * hasn't landed yet.
+ *
+ * As of 4.17 (2026-08-18) Calories shares this SAME fallback — see the
+ * CaloriesStatTile block below. 4.13 had deliberately left Calories on the
+ * strict today-only check, reasoning that calories accrue live through the day
+ * so a null "today" was a genuinely different, still-true state rather than a
+ * sync-lag artifact. 4.17 reverses that carve-out at the product owner's
+ * direction: WHOOP never marks the in-progress cycle SCORED, so today's
+ * `kilojoule` is null every day by construction — the strict check left the
+ * card permanently blank, which is worse for the reader than an honestly
+ * "As of [date]"-dated prior day. Both tiles now use `latestScoredSlice`; the
+ * live-accrual distinction the earlier version of this comment drew no longer
+ * decides which tile gets the fallback.
  * DISCLOSURE (added 2026-07-21): when the fallback reaches past
  * calendar-today, the tile shows a visible `formatRingDay`-labeled "As of
  * [date]" line (StatDelta's `asOfLabel`) — closing the gap the earlier
@@ -835,6 +844,17 @@ function SleepStatTile({
  * DailyMetricPoint in 4.12), converted to a whole kcal integer via KJ_PER_KCAL.
  * Value and delta both in kcal. Shares App's fetch via a prop, and takes the
  * 4.14-selected `rangeDays` as its baseline window.
+ *
+ * FALLBACK (added 4.17, 2026-08-18, at your direction — see the Sleep tile's
+ * block above): like Sleep, Calories now scans backward via `latestScoredSlice`
+ * for the latest SCORED day instead of demanding calendar-today. WHOOP does not
+ * mark the current, in-progress cycle SCORED until it closes, so today's
+ * `kilojoule` is null in the DB every day regardless of the hour — under the old
+ * strict check this card went blank all day, every day. When the fallback lands
+ * on a day other than the shared series' true last day, StatDelta shows the same
+ * visible "As of [date]" disclosure Sleep uses, so a stale number is never
+ * silently mislabeled as today's. `no-value` now only fires when NO day in the
+ * whole window has ever been scored (a brand-new / never-synced account).
  */
 function CaloriesStatTile({
   series,
@@ -844,13 +864,26 @@ function CaloriesStatTile({
   selection: RangeSelection;
 }) {
   const points = series.status === 'ready' ? series.points : [];
-  const delta = baselineDelta(points, (p) => p.kilojoule, {
-    windowDays: selection.days,
-    minSamples: BASELINE_MIN_SAMPLES,
-    excludeToday: true,
-  });
+  const caloriesPoints = latestScoredSlice(points, (p) => p.kilojoule);
+  const delta = caloriesPoints
+    ? baselineDelta(caloriesPoints, (p) => p.kilojoule, {
+        windowDays: selection.days,
+        minSamples: BASELINE_MIN_SAMPLES,
+        excludeToday: true,
+      })
+    : ({ kind: 'no-value' } as const);
+  // "Today" per the SHARED series vs. the day the calories fallback actually
+  // landed on (4.17). Only differ when the scan above had to reach backward —
+  // the common on-time case stays silent (asOfLabel undefined), mirroring Sleep.
+  const trueToday = points.length > 0 ? points[points.length - 1].day : null;
+  const caloriesDay = caloriesPoints ? caloriesPoints[caloriesPoints.length - 1].day : null;
+  const asOfLabel =
+    caloriesDay && caloriesDay !== trueToday ? `As of ${formatRingDay(caloriesDay)}` : undefined;
   // 4.16 Decision 2 — custom-range period average as the headline (see the
   // Sleep tile). Preset mode passes no `average` and is byte-identical to 4.15.
+  // NB: the average reads the RAW `points`, not `caloriesPoints` — a period
+  // average must reflect every real scored day in the window, not be re-anchored
+  // to the fallback day (matches Sleep; the 4.17 fallback must not leak here).
   const caloriesAvg = selection.mode === 'custom' ? rangeAverage(points, (p) => p.kilojoule) : null;
   const average =
     caloriesAvg == null
@@ -870,8 +903,9 @@ function CaloriesStatTile({
         formatValue={formatCaloriesValue}
         deltaToDisplay={kilojoulesToKcal}
         deltaUnit="cal"
-        noValueCaption="today’s calories aren’t in yet"
+        noValueCaption="no calories recorded yet"
         noBaselineCaption="not enough history yet for an average"
+        asOfLabel={asOfLabel}
         average={average}
       />
     </ChartContainer>

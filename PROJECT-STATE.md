@@ -1,5 +1,34 @@
 # Project state
 
+## Roadmap status (Task 4.17 — Calories fallback to latest scored day) — ✅ COMPLETE (mock-verified in the browser; NOT yet live-verified on prod) (2026-08-18)
+
+- **What & why.** `CaloriesStatTile` (`src/App.tsx`) now uses the same
+  latest-scored-day fallback Sleep got in 4.13, reversing 4.13's deliberate
+  Calories carve-out at the product owner's direction. Root cause: WHOOP never
+  marks the in-progress cycle `SCORED`, so today's `kilojoule` is null in the DB
+  every day by construction — the old strict today-only check made the card read
+  "today's calories aren't in yet" all day, every day. A permanently-blank card
+  is worse than an honestly "As of [date]"-dated prior day.
+- **Change.** Reused the existing `latestScoredSlice` helper (unchanged) and
+  computed `baselineDelta` from the fallback slice instead of raw `points`; added
+  the `trueToday`/`caloriesDay`/`asOfLabel` trio mirroring Sleep and passed
+  `asOfLabel` into `<StatDelta>`. Corrected `noValueCaption` "today's calories
+  aren't in yet" → "no calories recorded yet" (only fires now for a never-synced
+  account). Rewrote three stale comment blocks (SleepStatTile FALLBACK note,
+  CaloriesStatTile header, `.stat-delta-asof` in `charts.css`).
+- **Deliberately untouched:** the custom-range period average still reads raw
+  `points` (not the fallback slice); `StatDelta.tsx`, the rings, `SleepStatTile`,
+  and everything under `api/` are byte-untouched. No schema / fetch / env change.
+- **Files touched:** `src/App.tsx` (logic + comments), `src/components/charts/charts.css` (comment-only).
+- **Verification.** Browser mock (temporary `vite.config.ts` `/api/daily-series`
+  middleware, then `git checkout`-reverted to a clean tree): fallback fixture →
+  "2,151 cal · ▲ 143 cal above your recent average · As of August 17, 2026";
+  all-null-history → "—" + "no calories recorded yet"; today-scored (regression)
+  → value+delta with NO "As of" line (byte-identical to pre-4.17). No console
+  errors. Gates `npm run lint`, `npx tsc -b`, `npm run typecheck:api`,
+  `npm run test:stats`, `npm run format:check` all pass. **Residual:** not yet
+  seen against real WHOOP data on prod.
+
 ## Roadmap status (Task 4.16 — custom date-range picker) — ✅ COMPLETE (mock-verified + LIVE-VERIFIED on prod — custom ranges user-confirmed 2026-08-18) (2026-08-17)
 
 **What shipped**

@@ -413,11 +413,12 @@
   color: var(--color-muted);
 }
 
-/* Added 2026-07-21 — the Sleep tile's fallback-day disclosure ("As of July
- * 20"), shown only when latestScoredSlice (App.tsx) had to reach past
- * calendar-today. Same --text-xs/--color-muted treatment as .stat-delta-caption
- * (a second muted line, not a warning — falling back one day is expected, not
- * an error state). */
+/* Added 2026-07-21 — the fallback-day disclosure ("As of July 20"), shown by
+ * the Sleep AND (since 4.17, 2026-08-18) Calories tiles only when
+ * latestScoredSlice (App.tsx) had to reach past calendar-today. Same
+ * --text-xs/--color-muted treatment as .stat-delta-caption (a second muted
+ * line, not a warning — falling back one day is expected, not an error
+ * state). */
 .stat-delta-asof {
   margin: 0;
   font-size: var(--text-xs);
